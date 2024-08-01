@@ -337,7 +337,7 @@ type RedpandaUserSpec struct {
 	// Authentication defines the authentication information for a user.
 	// If authentication is not configured, no credentials are generated.
 	// +optional
-	Authentication RedpandaUserAuthenticationSpec `json:"authentication,omitempty`
+	Authentication RedpandaUserAuthenticationSpec `json:"authentication,omitempty"`
 	// Authorization rules defined for this user.
 	// +optional
 	Authorization RedpandaUserAuthorizationSpec `json:"authorization,omitempty"`
