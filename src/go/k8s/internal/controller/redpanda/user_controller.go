@@ -47,6 +47,11 @@ func (r *RedpandaUserController) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
+// redpanda resources
+// +kubebuilder:rbac:groups=cluster.redpanda.com,namespace=default,resources=redpandaUsers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cluster.redpanda.com,namespace=default,resources=redpandaUsers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=cluster.redpanda.com,namespace=default,resources=redpandaUsers/finalizers,verbs=update
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *RedpandaUserController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
