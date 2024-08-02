@@ -19,6 +19,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/cluster.redpanda.com/v1alpha1"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/vectorized/v1alpha1"
 )
 
@@ -351,7 +352,11 @@ type UserStatus struct {
 // UserSpec defines a user of a Redpanda cluster.
 type UserSpec struct {
 	// ClusterRef is a reference to the cluster where the user should be created.
-	ClusterRef ClusterRef `json:"clusterRef,omitempty"`
+	// This takes precedence over KafkaAPISpec
+	ClusterRef *ClusterRef `json:"clusterRef,omitempty"`
+	// KafkaAPISpec is the configuration information for communicating with a Redpanda cluster.
+	KafkaAPISpec *redpandav1alpha1.KafkaAPISpec `json:"kafkaApiSpec,omitempty"`
+
 	// Authentication defines the authentication information for a user.
 	// If authentication is not configured, no credentials are generated.
 	// +optional

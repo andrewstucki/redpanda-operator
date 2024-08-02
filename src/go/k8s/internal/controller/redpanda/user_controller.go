@@ -11,20 +11,7 @@ package redpanda
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
-	"errors"
-	"fmt"
-	"io"
-	"math/big"
-	"strings"
 
-	corev1 "k8s.io/api/core/v1"
-	discoveryv1 "k8s.io/api/discovery/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,23 +19,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/util"
 	"github.com/twmb/franz-go/pkg/kadm"
-	"github.com/twmb/franz-go/pkg/kgo"
 )
-
-const serviceLabel = "kubernetes.io/service-name"
 
 // UserController provides users for clusters
 type UserController struct {
 	client.Client
-	generator *passwordGenerator
+	clients   *util.ClientFactory
+	generator *util.PasswordGenerator
 }
 
 // NewUserController creates UserController
-func NewUserController(c client.Client) *UserController {
+func NewUserController(c client.Client, clients *util.ClientFactory) *UserController {
 	return &UserController{
 		Client:    c,
-		generator: newPasswordGenerator(),
+		clients:   clients,
+		generator: util.NewPasswordGenerator(),
 	}
 }
 
@@ -69,7 +56,21 @@ func (r *UserController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// TODO: finalizer
 
-	client, err := r.getRedpandaClient(ctx, user)
+	var client *kadm.Client
+	var err error
+
+	if user.Spec.ClusterRef != nil {
+		var cluster *redpandav1alpha2.Redpanda
+		cluster, err = r.getClusterFromRef(ctx, user.Namespace, user.Spec.ClusterRef)
+		if err != nil {
+			// TODO: set not found status on the User object if not found
+			return ctrl.Result{}, err
+		}
+		client, err = r.clients.ClusterAdmin(ctx, cluster)
+	} else {
+		client, err = r.clients.Admin(ctx, user.Namespace, user.Spec.KafkaAPISpec)
+	}
+
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -84,14 +85,13 @@ func (r *UserController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			Iterations: 4096,
 		}
 		if user.Spec.Authentication.Password == nil {
-			password, err := r.generator.generate()
+			password, err := r.generator.Generate()
 			if err != nil {
 				return ctrl.Result{}, err
 			}
 			scram.Password = password
 		}
 		// TODO: fetch password
-		// password := rand.
 		_, err := client.AlterUserSCRAMs(ctx, nil, []kadm.UpsertSCRAM{scram})
 		if err != nil {
 			return ctrl.Result{}, err
@@ -133,50 +133,6 @@ func (r *UserController) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 		Complete(r)
 }
 
-const (
-	userClusterIndex = "__user_referencing_cluster"
-)
-
-func userCluster(user *redpandav1alpha2.User) types.NamespacedName {
-	nn := types.NamespacedName{Namespace: user.Spec.ClusterRef.Namespace, Name: user.Spec.ClusterRef.Name}
-	if nn.Namespace == "" {
-		nn.Namespace = user.Namespace
-	}
-	return nn
-}
-
-func registerUserClusterIndex(ctx context.Context, mgr ctrl.Manager) error {
-	return mgr.GetFieldIndexer().IndexField(ctx, &redpandav1alpha2.User{}, userClusterIndex, indexUserCluster)
-}
-
-func indexUserCluster(o client.Object) []string {
-	user := o.(*redpandav1alpha2.User)
-	return []string{userCluster(user).String()}
-}
-
-func usersForCluster(ctx context.Context, c client.Client, nn types.NamespacedName) ([]reconcile.Request, error) {
-	childList := &redpandav1alpha2.UserList{}
-	err := c.List(ctx, childList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(userClusterIndex, nn.String()),
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	requests := []reconcile.Request{}
-	for _, item := range childList.Items {
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: item.GetNamespace(),
-				Name:      item.GetName(),
-			},
-		})
-	}
-
-	return requests, nil
-}
-
 func (r *UserController) getClusterFromRef(ctx context.Context, namespace string, ref *redpandav1alpha2.ClusterRef) (*redpandav1alpha2.Redpanda, error) {
 	cluster := &redpandav1alpha2.Redpanda{}
 	key := types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}
@@ -187,197 +143,4 @@ func (r *UserController) getClusterFromRef(ctx context.Context, namespace string
 		return nil, err
 	}
 	return cluster, nil
-}
-
-func (r *UserController) getRedpandaClient(ctx context.Context, user *redpandav1alpha2.User) (*kadm.Client, error) {
-	cluster, err := r.getClusterFromRef(ctx, user.Namespace, &user.Spec.ClusterRef)
-	if err != nil {
-		// TODO: set not found status on the User object if not found
-		return nil, err
-	}
-
-	return getInternalAdminClient(ctx, r.Client, cluster)
-}
-
-func getInternalAdminClient(ctx context.Context, c client.Client, cluster *redpandav1alpha2.Redpanda) (*kadm.Client, error) {
-	brokers, err := getBrokers(ctx, c, cluster)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(brokers) == 0 {
-		return nil, errors.New("no brokers")
-	}
-
-	clientCerts, pool, err := getCertificates(ctx, c, cluster)
-	if err != nil {
-		return nil, err
-	}
-
-	opts := []kgo.Opt{
-		kgo.SeedBrokers(brokers...),
-	}
-
-	if pool != nil {
-		opts = append(opts, kgo.DialTLSConfig(&tls.Config{
-			Certificates: clientCerts,
-			MinVersion:   tls.VersionTLS12,
-			RootCAs:      pool,
-		}))
-	}
-
-	client, err := kgo.NewClient(opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return kadm.NewClient(client), nil
-}
-
-// client, server, error
-func getCertificates(ctx context.Context, c client.Client, cluster *redpandav1alpha2.Redpanda) ([]tls.Certificate, *x509.CertPool, error) {
-	client, server, err := getCertificateSecrets(ctx, c, cluster)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if server == nil {
-		return nil, nil, nil
-	}
-
-	serverPubKey := server.Data[corev1.TLSCertKey]
-	caBlock, _ := pem.Decode(serverPubKey)
-	ca, err := x509.ParseCertificate(caBlock.Bytes)
-	if err != nil {
-		return nil, nil, err
-	}
-	pool := x509.NewCertPool()
-	pool.AddCert(ca)
-
-	if client != nil {
-		clientCert := client.Data[corev1.TLSCertKey]
-		clientPrivateKey := client.Data[corev1.TLSPrivateKeyKey]
-		clientKey, err := tls.X509KeyPair(clientCert, clientPrivateKey)
-		if err != nil {
-			return nil, nil, err
-		}
-		return []tls.Certificate{clientKey}, pool, nil
-	}
-
-	return nil, pool, nil
-}
-
-// client, server, error
-func getCertificateSecrets(ctx context.Context, c client.Client, cluster *redpandav1alpha2.Redpanda) (*corev1.Secret, *corev1.Secret, error) {
-	tls := cluster.Spec.ClusterSpec.TLS
-	if tls == nil {
-		return getDefaultCertificateSecrets(ctx, c, cluster.Namespace)
-	}
-	if tls.Enabled != nil && !*tls.Enabled {
-		return nil, nil, nil
-	}
-	if internal, ok := tls.Certs["default"]; ok {
-		return getCertificateSecretsFromRefs(ctx, c, cluster.Namespace, internal.SecretRef, internal.ClientSecretRef)
-	}
-	return getDefaultCertificateSecrets(ctx, c, cluster.Namespace)
-}
-
-func getDefaultCertificateSecrets(ctx context.Context, c client.Client, namespace string) (*corev1.Secret, *corev1.Secret, error) {
-	return getCertificateSecretsFromRefs(ctx, c, namespace, &redpandav1alpha2.SecretRef{Name: "redpanda-default-cert"}, nil)
-}
-
-func getCertificateSecretsFromRefs(ctx context.Context, c client.Client, namespace string, server, client *redpandav1alpha2.SecretRef) (*corev1.Secret, *corev1.Secret, error) {
-	serverSecret := &corev1.Secret{}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: server.Name}, serverSecret); err != nil {
-		return nil, nil, err
-	}
-	if client != nil {
-		clientSecret := &corev1.Secret{}
-		if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: client.Name}, clientSecret); err != nil {
-			return nil, nil, err
-		}
-		return clientSecret, serverSecret, nil
-	}
-	return nil, serverSecret, nil
-}
-
-func getBrokers(ctx context.Context, c client.Client, cluster *redpandav1alpha2.Redpanda) ([]string, error) {
-	service := &corev1.Service{}
-	if err := c.Get(ctx, client.ObjectKeyFromObject(cluster), service); err != nil {
-		return nil, err
-	}
-	endpointSlices := &discoveryv1.EndpointSliceList{}
-	if err := c.List(ctx, endpointSlices, &client.ListOptions{
-		LabelSelector: labels.SelectorFromSet(labels.Set{
-			serviceLabel: service.Name,
-		}),
-		Namespace: service.Namespace,
-	}); err != nil {
-		return nil, err
-	}
-
-	addresses := []string{}
-	for _, endpointSlice := range endpointSlices.Items {
-		for _, port := range endpointSlice.Ports {
-			if port.Name != nil && *port.Name == "admin" && port.Port != nil {
-				for _, endpoint := range endpointSlice.Endpoints {
-					for _, address := range endpoint.Addresses {
-						addresses = append(addresses, fmt.Sprintf("%s:%d", address, *port.Port))
-					}
-				}
-			}
-		}
-	}
-	return addresses, nil
-}
-
-// public PasswordGenerator(int length, String firstCharacterAlphabet, String alphabet) {
-// 	this.length = length;
-// 	this.firstCharacterAlphabet = firstCharacterAlphabet;
-// 	this.alphabet = alphabet;
-// }
-
-// public static final ConfigParameter<Integer> SCRAM_SHA_PASSWORD_LENGTH = new ConfigParameter<>("STRIMZI_SCRAM_SHA_PASSWORD_LENGTH", strictlyPositive(INTEGER), "32",  CONFIG_VALUES);
-
-type passwordGenerator struct {
-	reader          io.Reader
-	length          int
-	firstCharacters string
-	alphabet        string
-}
-
-func newPasswordGenerator() *passwordGenerator {
-	return &passwordGenerator{
-		reader:          rand.Reader,
-		length:          32,
-		firstCharacters: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
-		alphabet:        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-	}
-}
-
-func (p *passwordGenerator) generate() (string, error) {
-	var password strings.Builder
-	nextIndex := func(length int) (int, error) {
-		n, err := rand.Int(p.reader, big.NewInt(int64(length)))
-		if err != nil {
-			return -1, err
-		}
-		return int(n.Int64()), nil
-	}
-
-	index, err := nextIndex(len(p.firstCharacters))
-	if err != nil {
-		return "", err
-	}
-	password.WriteByte(p.firstCharacters[index])
-
-	for i := 0; i < p.length; i++ {
-		index, err := nextIndex(len(p.alphabet))
-		if err != nil {
-			return "", err
-		}
-		password.WriteByte(p.alphabet[index])
-	}
-
-	return password.String(), nil
 }

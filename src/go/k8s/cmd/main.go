@@ -53,6 +53,7 @@ import (
 	clusterredpandacomcontrollers "github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/cluster.redpanda.com"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/pvcunbinder"
 	redpandacontrollers "github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/util"
 	adminutils "github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/admin"
 	consolepkg "github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/console"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/resources"
@@ -503,7 +504,8 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err = redpandacontrollers.NewUserController(mgr.GetClient()).
+		clientFactory := util.NewClientFactory(mgr.GetClient())
+		if err = redpandacontrollers.NewUserController(mgr.GetClient(), clientFactory).
 			SetupWithManager(ctx, mgr); err != nil {
 			setupLog.Error(err, "Unable to create controller", "controller", "User")
 			os.Exit(1)
