@@ -5,7 +5,7 @@ metadata:
   name: managed-decommission
 spec:
   chartRef:
-    chartVersion: "5.7.17"
+    chartVersion: "5.8.13"
   clusterSpec:
     statefulset:
       replicas: 3

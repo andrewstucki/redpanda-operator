@@ -157,7 +157,10 @@ type RedpandaList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Redpanda{}, &RedpandaList{})
+	SchemeBuilder.Register(
+		&Redpanda{}, &RedpandaList{},
+		&User{}, &UserList{},
+	)
 }
 
 // GetHelmRelease returns the namespace and name of the HelmRelease.
@@ -300,27 +303,42 @@ type ClusterRef struct {
 	Namespace string `json:"namespace,omitempty"`
 	// Name specifies the name of the cluster being referenced.
 	Name string `json:"name,omitempty"`
+	// Group specifies an optional group to override what type
+	// of clusterRef this binds to, if unspecified, uses cluster.redpanda.com
+	Group *string `json:"group,omitempty"`
+	// Kind specifies an optional kind to override what type
+	// of clusterRef this binds to, if unspecified, uses Cluster
+	Kind *string `json:"kind,omitempty"`
 }
 
-// Redpanda defines the CRD for Redpanda user.
+// User defines the CRD for Redpanda user.
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=redpandaUsers
+// +kubebuilder:resource:path=users
 // +kubebuilder:resource:shortName=rpu
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].message",description=""
 // +kubebuilder:storageversion
-type RedpandaUser struct {
+type User struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Defines the desired state of the Redpanda user.
-	Spec RedpandaUserSpec `json:"spec,omitempty"`
+	Spec UserSpec `json:"spec,omitempty"`
 	// Represents the current status of the Redpanda user.
-	Status RedpandaUserStatus `json:"status,omitempty"`
+	Status UserStatus `json:"status,omitempty"`
 }
 
-// RedpandaUserStatus defines the observed state of a Redpanda user
-type RedpandaUserStatus struct {
+// UserList contains a list of Redpanda user objects.
+// +kubebuilder:object:root=true
+type UserList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	// Specifies a list of Redpanda user resources.
+	Items []User `json:"items"`
+}
+
+// UserStatus defines the observed state of a Redpanda user
+type UserStatus struct {
 	// Specifies the last observed generation.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -330,30 +348,30 @@ type RedpandaUserStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// RedpandaUserSpec defines a user of a Redpanda cluster.
-type RedpandaUserSpec struct {
+// UserSpec defines a user of a Redpanda cluster.
+type UserSpec struct {
 	// ClusterRef is a reference to the cluster where the user should be created.
 	ClusterRef ClusterRef `json:"clusterRef,omitempty"`
 	// Authentication defines the authentication information for a user.
 	// If authentication is not configured, no credentials are generated.
 	// +optional
-	Authentication RedpandaUserAuthenticationSpec `json:"authentication,omitempty"`
+	Authentication UserAuthenticationSpec `json:"authentication,omitempty"`
 	// Authorization rules defined for this user.
 	// +optional
-	Authorization RedpandaUserAuthorizationSpec `json:"authorization,omitempty"`
+	Authorization UserAuthorizationSpec `json:"authorization,omitempty"`
 	// Quotas on requests to control the broker resources used by clients. Network
 	// bandwidth and request rate quotas can be enforced.
 	// +optional
-	Quotas RedpandaQuotasSpec `json:"quotas,omitempty"`
+	Quotas QuotasSpec `json:"quotas,omitempty"`
 	// Template to specify how user secrets are generated.
 	// +optional
-	Template RedpandaUserTemplateSpec `json:"template,omitempty"`
+	Template UserTemplateSpec `json:"template,omitempty"`
 }
 
-// RedpandaUserTemplateSpec defines the template metadata for a user
-type RedpandaUserTemplateSpec struct {
+// UserTemplateSpec defines the template metadata for a user
+type UserTemplateSpec struct {
 	// Template for RedpandaUser resources. The template allows users
-	// to specify how the Secret with password or TLS certificates is generated. 
+	// to specify how the Secret with password or TLS certificates is generated.
 	Secret ResourceTemplate `json:"secret,omitempty"`
 }
 
@@ -373,8 +391,8 @@ type MetadataTemplate struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-// RedpandaQuotasSpec defines the quotas for a user.
-type RedpandaQuotasSpec struct {
+// QuotasSpec defines the quotas for a user.
+type QuotasSpec struct {
 	// A quota on the maximum bytes per-second that each client group can publish to a broker
 	// before the clients in the group are throttled. Defined on a per-broker basis.
 	// +optional
@@ -393,26 +411,41 @@ type RedpandaQuotasSpec struct {
 	ControllerMutationRate *int `json:"controllerMutationRate,omitempty"`
 }
 
-// RedpandaUserAuthenticationSpec defines the authentication mechanism enabled for this Redpanda user.
-type RedpandaUserAuthenticationSpec struct {
+// UserAuthenticationSpec defines the authentication mechanism enabled for this Redpanda user.
+type UserAuthenticationSpec struct {
 	// one of: scram-sha-512, tls, or tls-external
 	Type string `json:"type,omitempty"`
+	// Password for SCRAM based authentication
+	Password *Password `json:"password,omitempty"`
+}
+
+type Password struct {
+	ValueFrom PasswordSource `json:"valueFrom,omitempty"`
+}
+
+type PasswordSource struct {
+	SecretKeyRef SecretKeyRef `json:"secretKeyRef,omitempty"`
+}
+
+type SecretKeyRef struct {
+	Key  string `json:"key,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // Authorization rules for this user.
-type RedpandaUserAuthorizationSpec struct {
+type UserAuthorizationSpec struct {
 	// one of: simple
 	Type string `json:"type,omitempty"`
 	// List of ACL rules which should be applied to this user.
-	ACLs []RedpandaACLRule `json:"acls,omitempty"`
+	ACLs []ACLRule `json:"acls,omitempty"`
 }
 
 // Defines an ACL rule applied to the given user.
-type RedpandaACLRule struct {
+type ACLRule struct {
 	// one of: allow, deny
 	Type string `json:"type,omitempty"`
 	// Indicates the resource for which given ACL rule applies.
-	Resource RedpandaACLResourceSpec `json:"resource,omitempty"`
+	Resource ACLResourceSpec `json:"resource,omitempty"`
 	// The host from which the action described in the ACL rule is allowed or denied.
 	// If not set, it defaults to *, allowing or denying the action from any host.
 	Host string `json:"host,omitempty"`
@@ -422,7 +455,7 @@ type RedpandaACLRule struct {
 }
 
 // Indicates the resource for which given ACL rule applies.
-type RedpandaACLResourceSpec struct {
+type ACLResourceSpec struct {
 	// one of: topic, group, cluster, transactionalId
 	Type string `json:"type,omitempty"`
 	// Name of resource for which given ACL rule applies.
@@ -432,7 +465,7 @@ type RedpandaACLResourceSpec struct {
 	// and prefix. With literal pattern type, the resource field will be used as a definition
 	// of a full topic name. With prefix pattern type, the resource name will be used only as
 	// a prefix. Default value is literal.
-	// 
+	//
 	// one of: prefix, literal
 	PatternType string `json:"patternType,omitempty"`
 }

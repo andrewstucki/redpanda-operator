@@ -9,4 +9,5 @@ metadata:
     app.kubernetes.io/created-by: redpanda-operator
   name: redpanda-sample
 spec:
-  # TODO(user): Add fields here
+  chartRef:
+    chartVersion: 5.8.13

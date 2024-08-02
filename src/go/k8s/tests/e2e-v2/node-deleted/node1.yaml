@@ -1,0 +1,148 @@
+apiVersion: v1
+kind: Node
+metadata:
+  annotations:
+    kubeadm.alpha.kubernetes.io/cri-socket: unix:///run/containerd/containerd.sock
+    node.alpha.kubernetes.io/ttl: "0"
+    volumes.kubernetes.io/controller-managed-attach-detach: "true"
+  creationTimestamp: "2024-08-02T16:55:12Z"
+  labels:
+    beta.kubernetes.io/arch: arm64
+    beta.kubernetes.io/os: linux
+    kubernetes.io/arch: arm64
+    kubernetes.io/hostname: kind-worker3
+    kubernetes.io/os: linux
+  name: kind-worker3
+  resourceVersion: "7168"
+  uid: 0104970c-f7de-4678-b41d-023cec161792
+spec:
+  podCIDR: 10.244.4.0/24
+  podCIDRs:
+  - 10.244.4.0/24
+  providerID: kind://docker/kind/kind-worker3
+status:
+  addresses:
+  - address: 172.18.0.3
+    type: InternalIP
+  - address: kind-worker3
+    type: Hostname
+  allocatable:
+    cpu: "11"
+    ephemeral-storage: 61202244Ki
+    hugepages-1Gi: "0"
+    hugepages-2Mi: "0"
+    hugepages-32Mi: "0"
+    hugepages-64Ki: "0"
+    memory: 8026752Ki
+    pods: "110"
+  capacity:
+    cpu: "11"
+    ephemeral-storage: 61202244Ki
+    hugepages-1Gi: "0"
+    hugepages-2Mi: "0"
+    hugepages-32Mi: "0"
+    hugepages-64Ki: "0"
+    memory: 8026752Ki
+    pods: "110"
+  conditions:
+  - lastHeartbeatTime: "2024-08-02T17:18:20Z"
+    lastTransitionTime: "2024-08-02T16:55:12Z"
+    message: kubelet has sufficient memory available
+    reason: KubeletHasSufficientMemory
+    status: "False"
+    type: MemoryPressure
+  - lastHeartbeatTime: "2024-08-02T17:18:20Z"
+    lastTransitionTime: "2024-08-02T16:55:12Z"
+    message: kubelet has no disk pressure
+    reason: KubeletHasNoDiskPressure
+    status: "False"
+    type: DiskPressure
+  - lastHeartbeatTime: "2024-08-02T17:18:20Z"
+    lastTransitionTime: "2024-08-02T16:55:12Z"
+    message: kubelet has sufficient PID available
+    reason: KubeletHasSufficientPID
+    status: "False"
+    type: PIDPressure
+  - lastHeartbeatTime: "2024-08-02T17:18:20Z"
+    lastTransitionTime: "2024-08-02T16:55:23Z"
+    message: kubelet is posting ready status
+    reason: KubeletReady
+    status: "True"
+    type: Ready
+  daemonEndpoints:
+    kubeletEndpoint:
+      Port: 10250
+  images:
+  - names:
+    - docker.redpanda.com/redpandadata/redpanda@sha256:faf973ac8097bcbe1ff34482b3d507e9036a7bf655c322f239145bc86891809f
+    - docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    sizeBytes: 143979425
+  - names:
+    - docker.redpanda.com/redpandadata/redpanda@sha256:08e47303b2892513df59ff4694fd67eaa8cf726ec449a58adfabad6c0a726ef7
+    - docker.redpanda.com/redpandadata/redpanda:v23.2.3
+    sizeBytes: 132154964
+  - names:
+    - docker.redpanda.com/redpandadata/redpanda@sha256:c3bcb1fe6109ae0cfdb4b9e8082fd7ed02e9a3f87578376f24cd01793978bc0a
+    - docker.redpanda.com/redpandadata/redpanda:v23.2.10
+    sizeBytes: 126013399
+  - names:
+    - docker.redpanda.com/redpandadata/redpanda@sha256:9452bc9618a2d6af8f4e318fbb8bd80218a78c31e2a0f033d931398e5304aa5c
+    - docker.redpanda.com/redpandadata/redpanda:v23.2.9
+    sizeBytes: 126002606
+  - names:
+    - docker.redpanda.com/redpandadata/redpanda@sha256:254d4c717bac58512c21c926e00bace8614f669ed204a1fe6465f6ced1740cd9
+    - docker.redpanda.com/redpandadata/redpanda:v23.2.8
+    sizeBytes: 125937100
+  - names:
+    - docker.io/library/import-2022-10-26@sha256:534c9da23d9e6634f9eec2557f17fe5d4c1ac6a3c92abea75c3a4b74e2c3f518
+    - k8s.gcr.io/kube-proxy:v1.24.7
+    sizeBytes: 108564844
+  - names:
+    - docker.io/library/import-2024-08-02@sha256:0556fc0c9279cd2325469340994304f42378be9e6575a09efa88e6fdb1f144c9
+    - localhost/redpanda-operator:dev
+    sizeBytes: 81283970
+  - names:
+    - k8s.gcr.io/etcd:3.5.3-0
+    sizeBytes: 81114891
+  - names:
+    - docker.io/library/import-2022-10-26@sha256:9627b0d4bb2a29fa0eba17eeb4a891025a412c356bf4472410db62bf079bbeca
+    - k8s.gcr.io/kube-apiserver:v1.24.7
+    sizeBytes: 75522525
+  - names:
+    - docker.io/library/import-2022-10-26@sha256:2dc0484b2c8ed0356c3c875c81603e1cfb364c5f6612c45052f291aafabd1d54
+    - k8s.gcr.io/kube-controller-manager:v1.24.7
+    sizeBytes: 63856751
+  - names:
+    - docker.io/library/import-2022-10-26@sha256:56b94e2a2d0a8ab7f5df0f4e7a261131011391d086e80c394dc34cc3fdca332a
+    - k8s.gcr.io/kube-scheduler:v1.24.7
+    sizeBytes: 51404911
+  - names:
+    - docker.io/kindest/kindnetd:v20221004-44d545d1
+    sizeBytes: 23673212
+  - names:
+    - docker.io/kindest/local-path-provisioner:v0.0.22-kind.0
+    sizeBytes: 15578330
+  - names:
+    - quay.io/jetstack/cert-manager-webhook@sha256:f45b21f770bf4676c732f19e2ef17c34f46ac75873a5e0aa25703d808b2e5566
+    - quay.io/jetstack/cert-manager-webhook:v1.13.3
+    sizeBytes: 13790104
+  - names:
+    - k8s.gcr.io/coredns/coredns:v1.8.6
+    sizeBytes: 12317707
+  - names:
+    - docker.io/kindest/local-path-helper:v20220607-9a4d8d2a
+    sizeBytes: 2749880
+  - names:
+    - registry.k8s.io/pause:3.7
+    sizeBytes: 268400
+  nodeInfo:
+    architecture: arm64
+    bootID: fdf1b424-5275-4092-8f22-54a4a85494f1
+    containerRuntimeVersion: containerd://1.6.9
+    kernelVersion: 6.10.0-linuxkit
+    kubeProxyVersion: v1.24.7
+    kubeletVersion: v1.24.7
+    machineID: 050e377c11ea4371ac626d5bdc42660c
+    operatingSystem: linux
+    osImage: Ubuntu 22.04.1 LTS
+    systemUUID: 050e377c11ea4371ac626d5bdc42660c

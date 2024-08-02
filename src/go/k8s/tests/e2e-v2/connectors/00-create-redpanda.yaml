@@ -5,7 +5,7 @@ metadata:
   name: rp-connectors
 spec:
   chartRef:
-    chartVersion: "5.7.4"
+    chartVersion: "5.8.13"
   clusterSpec:
     statefulset:
       replicas: 1

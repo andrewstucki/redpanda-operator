@@ -1,0 +1,8 @@
+apiVersion: cluster.redpanda.com/v1alpha2
+kind: User
+metadata:
+  namespace: redpanda
+  name: redpanda-user-2
+spec:
+  clusterRef:
+    name: rp-connectors

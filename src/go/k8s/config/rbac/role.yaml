@@ -45,7 +45,7 @@ rules:
   - watch
 - apiGroups:
   - cert-manager.io
-  resources:
+resources:
   - clusterissuers
   verbs:
   - create
@@ -55,6 +55,30 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - cluster.redpanda.com
+  resources:
+  - users
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cluster.redpanda.com
+  resources:
+  - users/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - cluster.redpanda.com
+  resources:
+  - users/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - cluster.redpanda.com
   resources:
@@ -414,6 +438,30 @@ rules:
   resources:
   - topics/finalizers
   verbs:
+  - update
+- apiGroups:
+  - cluster.redpanda.com
+  resources:
+  - users
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cluster.redpanda.com
+  resources:
+  - users/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - cluster.redpanda.com
+  resources:
+  - users/status
+  verbs:
+  - get
+  - patch
   - update
 - apiGroups:
   - cluster.redpanda.com

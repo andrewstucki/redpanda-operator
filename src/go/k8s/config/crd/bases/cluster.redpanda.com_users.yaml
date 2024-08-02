@@ -4,16 +4,16 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.15.0
-  name: redpandaUsers.cluster.redpanda.com
+  name: users.cluster.redpanda.com
 spec:
   group: cluster.redpanda.com
   names:
-    kind: RedpandaUser
-    listKind: RedpandaUserList
-    plural: redpandaUsers
+    kind: User
+    listKind: UserList
+    plural: users
     shortNames:
     - rpu
-    singular: redpandauser
+    singular: user
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -23,7 +23,7 @@ spec:
     name: v1alpha2
     schema:
       openAPIV3Schema:
-        description: Redpanda defines the CRD for Redpanda user.
+        description: User defines the CRD for Redpanda user.
         properties:
           apiVersion:
             description: |-
@@ -111,6 +111,16 @@ spec:
                 description: ClusterRef is a reference to the cluster where the user
                   should be created.
                 properties:
+                  group:
+                    description: |-
+                      Group specifies an optional group to override what type
+                      of clusterRef this binds to, if unspecified, uses cluster.redpanda.com
+                    type: string
+                  kind:
+                    description: |-
+                      Kind specifies an optional kind to override what type
+                      of clusterRef this binds to, if unspecified, uses Cluster
+                    type: string
                   name:
                     description: Name specifies the name of the cluster being referenced.
                     type: string
