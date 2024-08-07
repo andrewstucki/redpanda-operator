@@ -7,7 +7,10 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
+	"time"
 
+	"github.com/go-logr/logr"
 	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/cluster.redpanda.com/v1alpha1"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -22,18 +25,42 @@ import (
 const (
 	serviceLabel                = "kubernetes.io/service-name"
 	helmInternalCertificateName = "default"
-	defaultCertSecretName       = "redpanda-default-cert"
+	defaultCertSecretSuffix     = "-default-cert"
 
-	adminPort = "admin"
+	adminPort = "kafka"
 )
+
+type remapper interface {
+	MapHost(broker string) string
+	ConfigureTLS(brokers []string, config *tls.Config) *tls.Config
+}
+
+type noopRemapper struct{}
+
+func (n *noopRemapper) MapHost(broker string) string {
+	return broker
+}
+
+func (n *noopRemapper) ConfigureTLS(brokers []string, config *tls.Config) *tls.Config { return config }
+
+func defaultCertificate(name string) string {
+	return name + defaultCertSecretSuffix
+}
 
 type ClientFactory struct {
 	client.Client
+	dialer *net.Dialer
+
+	// this can be overridden in tests to use for port-forwarding into kubernetes
+	// installations from the host
+	remapper remapper
 }
 
 func NewClientFactory(client client.Client) *ClientFactory {
 	return &ClientFactory{
-		Client: client,
+		Client:   client,
+		remapper: &noopRemapper{},
+		dialer:   &net.Dialer{Timeout: 10 * time.Second},
 	}
 }
 
@@ -57,6 +84,15 @@ func (c *ClientFactory) ClusterAdmin(ctx context.Context, cluster *redpandav1alp
 	return kadm.NewClient(client), nil
 }
 
+type dialer func(ctx context.Context, network string, host string) (net.Conn, error)
+
+func (c *ClientFactory) dialAndRemap(dialer dialer) dialer {
+	return func(ctx context.Context, network string, host string) (net.Conn, error) {
+		mapped := c.remapper.MapHost(host)
+		return dialer(ctx, network, mapped)
+	}
+}
+
 // getClient returns a simple kgo.Client able to communicate with the given cluster specified via KafkaAPISpec.
 func (c *ClientFactory) getClient(ctx context.Context, namespace string, spec *redpandav1alpha1.KafkaAPISpec) (*kgo.Client, error) {
 	if len(spec.Brokers) == 0 {
@@ -73,11 +109,30 @@ func (c *ClientFactory) getClient(ctx context.Context, namespace string, spec *r
 	}
 
 	if pool != nil {
-		opts = append(opts, kgo.DialTLSConfig(&tls.Config{
-			Certificates: clientCerts,
-			MinVersion:   tls.VersionTLS12,
-			RootCAs:      pool,
-		}))
+		insecure := false
+		if spec.TLS != nil && spec.TLS.InsecureSkipTLSVerify {
+			insecure = true
+		}
+		tlsDialer := (&tls.Dialer{
+			NetDialer: c.dialer,
+			Config: c.remapper.ConfigureTLS(spec.Brokers, &tls.Config{
+				Certificates:       clientCerts,
+				MinVersion:         tls.VersionTLS12,
+				RootCAs:            pool,
+				InsecureSkipVerify: insecure,
+			}),
+		})
+
+		opts = append(opts, kgo.Dialer(c.dialAndRemap(tlsDialer.DialContext)))
+	} else {
+		opts = append(opts, kgo.Dialer(c.dialAndRemap(c.dialer.DialContext)))
+	}
+
+	if spec.SASL != nil {
+		opts, err = spec.ConfigureSASL(ctx, namespace, c.Client, opts, logr.Discard())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return kgo.NewClient(opts...)
@@ -104,11 +159,18 @@ func (c *ClientFactory) getClusterClient(ctx context.Context, portName string, c
 	}
 
 	if pool != nil {
-		opts = append(opts, kgo.DialTLSConfig(&tls.Config{
-			Certificates: clientCerts,
-			MinVersion:   tls.VersionTLS12,
-			RootCAs:      pool,
-		}))
+		tlsDialer := (&tls.Dialer{
+			NetDialer: c.dialer,
+			Config: c.remapper.ConfigureTLS(brokers, &tls.Config{
+				Certificates: clientCerts,
+				MinVersion:   tls.VersionTLS12,
+				RootCAs:      pool,
+			}),
+		})
+
+		opts = append(opts, kgo.Dialer(c.dialAndRemap(tlsDialer.DialContext)))
+	} else {
+		opts = append(opts, kgo.Dialer(c.dialAndRemap(c.dialer.DialContext)))
 	}
 
 	return kgo.NewClient(opts...)
@@ -136,9 +198,8 @@ func (c *ClientFactory) getClusterBrokers(ctx context.Context, portName string, 
 		for _, port := range endpointSlice.Ports {
 			if port.Name != nil && *port.Name == portName && port.Port != nil {
 				for _, endpoint := range endpointSlice.Endpoints {
-					for _, address := range endpoint.Addresses {
-						addresses = append(addresses, fmt.Sprintf("%s:%d", address, *port.Port))
-					}
+					host := fmt.Sprintf("%s.%s.%s.svc", endpoint.TargetRef.Name, service.Name, service.Namespace)
+					addresses = append(addresses, fmt.Sprintf("%s:%d", host, *port.Port))
 				}
 			}
 		}
@@ -220,14 +281,19 @@ func (c *ClientFactory) getCertificateSecrets(ctx context.Context, namespace str
 		return c.getCertificateSecretsFromV1Refs(ctx, namespace, spec.TLS.CaCert, spec.TLS.Cert, spec.TLS.Key)
 	}
 
-	return c.getDefaultCertificateV1Secrets(ctx, namespace, spec.TLS.Cert, spec.TLS.Key)
+	return nil, nil, nil, nil
 }
 
 // getClusterCertificateSecrets fetches the client and server certs for a Redpanda cluster
 func (c *ClientFactory) getClusterCertificateSecrets(ctx context.Context, cluster *redpandav1alpha2.Redpanda) (*corev1.Secret, *corev1.Secret, error) {
-	tls := cluster.Spec.ClusterSpec.TLS
+	spec := cluster.Spec.ClusterSpec
+	if spec == nil {
+		return c.getDefaultCertificateSecrets(ctx, cluster.Name, cluster.Namespace)
+	}
+
+	tls := spec.TLS
 	if tls == nil {
-		return c.getDefaultCertificateSecrets(ctx, cluster.Namespace)
+		return c.getDefaultCertificateSecrets(ctx, cluster.Name, cluster.Namespace)
 	}
 	if tls.Enabled != nil && !*tls.Enabled {
 		return nil, nil, nil
@@ -235,12 +301,12 @@ func (c *ClientFactory) getClusterCertificateSecrets(ctx context.Context, cluste
 	if internal, ok := tls.Certs[helmInternalCertificateName]; ok {
 		return c.getCertificateSecretsFromRefs(ctx, cluster.Namespace, internal.SecretRef, internal.ClientSecretRef)
 	}
-	return c.getDefaultCertificateSecrets(ctx, cluster.Namespace)
+	return c.getDefaultCertificateSecrets(ctx, cluster.Name, cluster.Namespace)
 }
 
 // getDefaultCertificateSecrets fetches the default server secret
-func (c *ClientFactory) getDefaultCertificateSecrets(ctx context.Context, namespace string) (*corev1.Secret, *corev1.Secret, error) {
-	return c.getCertificateSecretsFromRefs(ctx, namespace, &redpandav1alpha2.SecretRef{Name: defaultCertSecretName}, nil)
+func (c *ClientFactory) getDefaultCertificateSecrets(ctx context.Context, name, namespace string) (*corev1.Secret, *corev1.Secret, error) {
+	return c.getCertificateSecretsFromRefs(ctx, namespace, &redpandav1alpha2.SecretRef{Name: defaultCertificate(name)}, nil)
 }
 
 // getCertificateSecretsFromRefs fetches a server and client (if specified) secret from SecretRefs
@@ -259,11 +325,6 @@ func (c *ClientFactory) getCertificateSecretsFromRefs(ctx context.Context, names
 	return nil, serverSecret, nil
 }
 
-// getDefaultCertificateV1Secrets fetches the default server secret
-func (c *ClientFactory) getDefaultCertificateV1Secrets(ctx context.Context, namespace string, clientCert, clientKey *redpandav1alpha1.SecretKeyRef) ([]byte, []byte, []byte, error) {
-	return c.getCertificateSecretsFromV1Refs(ctx, namespace, &redpandav1alpha1.SecretKeyRef{Name: defaultCertSecretName, Key: corev1.TLSCertKey}, clientCert, clientKey)
-}
-
 // getCertificateSecretsFromV1Refs fetches a server and client (if specified) secret from SecretRefs
 func (c *ClientFactory) getCertificateSecretsFromV1Refs(ctx context.Context, namespace string, server, clientCert, clientKey *redpandav1alpha1.SecretKeyRef) ([]byte, []byte, []byte, error) {
 	serverSecret := &corev1.Secret{}
@@ -271,7 +332,11 @@ func (c *ClientFactory) getCertificateSecretsFromV1Refs(ctx context.Context, nam
 		return nil, nil, nil, err
 	}
 
-	serverCA := serverSecret.Data[server.Key]
+	key := server.Key
+	if key == "" {
+		key = corev1.TLSCertKey
+	}
+	serverCA := serverSecret.Data[key]
 
 	if clientCert != nil && clientKey != nil {
 		clientCertSecret := &corev1.Secret{}
