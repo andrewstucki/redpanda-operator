@@ -50,8 +50,6 @@ import (
 )
 
 const (
-	FinalizerKey = "operator.redpanda.com/finalizer"
-
 	SecretAnnotationExternalCAKey = "operator.redpanda.com/external-ca"
 
 	NotManaged = "false"

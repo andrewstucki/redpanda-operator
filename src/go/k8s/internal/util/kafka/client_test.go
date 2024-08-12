@@ -10,8 +10,8 @@ import (
 
 	"github.com/redpanda-data/helm-charts/pkg/helm"
 	"github.com/redpanda-data/helm-charts/pkg/kube"
-	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/cluster.redpanda.com/v1alpha1"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
+	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha1"
+	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/k3s"
 	corev1 "k8s.io/api/core/v1"
@@ -144,10 +144,10 @@ func TestClientFactory(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Run("Cluster", func(t *testing.T) {
-				var cluster v1alpha2.Redpanda
+				var cluster redpandav1alpha2.Redpanda
 				cluster.Name = name
 				cluster.Namespace = name
-				cluster.Spec.ClusterSpec = &v1alpha2.RedpandaClusterSpec{}
+				cluster.Spec.ClusterSpec = &redpandav1alpha2.RedpandaClusterSpec{}
 
 				data, err := json.Marshal(values)
 				require.NoError(t, err)

@@ -17,7 +17,7 @@ import (
 	"github.com/redpanda-data/console/backend/pkg/config"
 	"github.com/redpanda-data/helm-charts/pkg/kube"
 	"github.com/redpanda-data/helm-charts/pkg/redpanda"
-	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/cluster.redpanda.com/v1alpha1"
+	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha1"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -37,10 +37,9 @@ var ErrEmptyBrokerList = errors.New("empty broker list")
 
 type ClientFactory struct {
 	client.Client
-	logger          logr.Logger
-	metricNamespace *string
-	config          *rest.Config
-	dialer          redpanda.DialContextFunc
+	logger logr.Logger
+	config *rest.Config
+	dialer redpanda.DialContextFunc
 }
 
 func NewClientFactory(config *rest.Config) (*ClientFactory, error) {
