@@ -452,6 +452,16 @@ spec:
           status:
             description: Represents the current status of the Redpanda user.
             properties:
+              clusterRef:
+                description: ClusterRef is a reference to the cluster where the user
+                  was created.
+                properties:
+                  name:
+                    description: Name specifies the name of the cluster being referenced.
+                    type: string
+                required:
+                - name
+                type: object
               conditions:
                 description: Conditions holds the conditions for the Redpanda user.
                 items:

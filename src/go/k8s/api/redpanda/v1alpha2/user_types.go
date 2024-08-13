@@ -40,10 +40,12 @@ type UserStatus struct {
 	// Specifies the last observed generation.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-
 	// Conditions holds the conditions for the Redpanda user.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// ClusterRef is a reference to the cluster where the user was created.
+	// +optional
+	ClusterRef *ClusterRef `json:"clusterRef,omitempty"`
 }
 
 // UserSpec defines a user of a Redpanda cluster.
