@@ -79,7 +79,7 @@ func (c *ClientFactory) WithLogger(logger logr.Logger) *ClientFactory {
 }
 
 // Admin returns a client able to communicate with the cluster defined by the given KafkaAPISpec.
-func (c *ClientFactory) Admin(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha1.KafkaAPISpec, opts ...kgo.Opt) (*kadm.Client, error) {
+func (c *ClientFactory) Admin(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec, opts ...kgo.Opt) (*kadm.Client, error) {
 	client, err := c.GetClient(ctx, namespace, metricNamespace, spec, opts...)
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func (c *ClientFactory) ClusterAdmin(ctx context.Context, cluster *redpandav1alp
 }
 
 // GetClient returns a simple kgo.Client able to communicate with the given cluster specified via KafkaAPISpec.
-func (c *ClientFactory) GetClient(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha1.KafkaAPISpec, opts ...kgo.Opt) (*kgo.Client, error) {
+func (c *ClientFactory) GetClient(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec, opts ...kgo.Opt) (*kgo.Client, error) {
 	kopts, err := c.configFromSpec(ctx, namespace, metricNamespace, spec)
 	if err != nil {
 		return nil, err
@@ -113,7 +113,7 @@ func (c *ClientFactory) GetClient(ctx context.Context, namespace string, metricN
 	return kgo.NewClient(append(opts, kopts...)...)
 }
 
-func (c *ClientFactory) configFromSpec(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha1.KafkaAPISpec) ([]kgo.Opt, error) {
+func (c *ClientFactory) configFromSpec(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec) ([]kgo.Opt, error) {
 	if len(spec.Brokers) == 0 {
 		return nil, ErrEmptyBrokerList
 	}
@@ -162,7 +162,7 @@ func (c *ClientFactory) configFromSpec(ctx context.Context, namespace string, me
 	return opts, nil
 }
 
-func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, spec *redpandav1alpha1.KafkaAPISpec) (*tls.Config, error) {
+func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (*tls.Config, error) {
 	var caCertPool *x509.CertPool
 
 	// Root CA
@@ -218,7 +218,7 @@ func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, 
 	}, nil
 }
 
-func (c *ClientFactory) configureSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha1.KafkaAPISpec) (kgo.Opt, error) {
+func (c *ClientFactory) configureSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (kgo.Opt, error) {
 	switch spec.SASL.Mechanism {
 	// SASL Plain
 	case config.SASLMechanismPlain:

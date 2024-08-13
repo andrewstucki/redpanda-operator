@@ -10,7 +10,6 @@ import (
 
 	"github.com/redpanda-data/helm-charts/pkg/helm"
 	"github.com/redpanda-data/helm-charts/pkg/kube"
-	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha1"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/k3s"
@@ -161,7 +160,7 @@ func TestClientFactory(t *testing.T) {
 			})
 
 			t.Run("KafkaAPISpec", func(t *testing.T) {
-				var spec redpandav1alpha1.KafkaAPISpec
+				var spec redpandav1alpha2.KafkaAPISpec
 				spec.Brokers = []string{fmt.Sprintf("%s-0.%s.%s.svc:9093", name, name, name)}
 				if tt.Auth != nil {
 					require.NoError(t, factory.Create(ctx, &corev1.Secret{
@@ -174,18 +173,18 @@ func TestClientFactory(t *testing.T) {
 						},
 					}))
 
-					spec.SASL = &redpandav1alpha1.KafkaSASL{
+					spec.SASL = &redpandav1alpha2.KafkaSASL{
 						Username: tt.Auth.Name,
-						Password: redpandav1alpha1.SecretKeyRef{
+						Password: redpandav1alpha2.SecretKeyRef{
 							Name: "secret",
 							Key:  "password",
 						},
-						Mechanism: redpandav1alpha1.SASLMechanism(tt.Auth.Mechanism),
+						Mechanism: redpandav1alpha2.SASLMechanism(tt.Auth.Mechanism),
 					}
 				}
 				if tt.TLS {
-					spec.TLS = &redpandav1alpha1.KafkaTLS{
-						CaCert: &redpandav1alpha1.SecretKeyRef{
+					spec.TLS = &redpandav1alpha2.KafkaTLS{
+						CaCert: &redpandav1alpha2.SecretKeyRef{
 							Name: fmt.Sprintf("%s-default-root-certificate", name),
 							Key:  corev1.TLSCertKey,
 						},

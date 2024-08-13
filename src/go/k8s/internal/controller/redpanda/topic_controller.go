@@ -32,6 +32,7 @@ import (
 	v2 "sigs.k8s.io/controller-runtime/pkg/webhook/conversion/testdata/api/v2"
 
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha1"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/util/kafka"
 )
 
@@ -85,7 +86,7 @@ func (r *TopicReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	l.Info("Starting reconcile loop")
 
-	topic := &v1alpha1.Topic{}
+	topic := &v1alpha2.Topic{}
 	if err := r.Client.Get(ctx, req.NamespacedName, topic); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -122,7 +123,7 @@ func (r *TopicReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	} else if !topic.DeletionTimestamp.IsZero() {
 		patch := client.MergeFrom(topic.DeepCopy())
 		controllerutil.RemoveFinalizer(topic, FinalizerKey)
-		topic = v1alpha1.TopicReady(topic)
+		topic = v1alpha2.TopicReady(topic)
 		if err = r.Patch(ctx, topic, patch); err != nil {
 			l.Error(err, "unable to remove finalizer")
 			return ctrl.Result{}, err
@@ -134,11 +135,11 @@ func (r *TopicReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 // SetupWithManager sets up the controller with the Manager.
 func (r *TopicReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Topic{}).
+		For(&v1alpha2.Topic{}).
 		Complete(r)
 }
 
-func (r *TopicReconciler) reconcile(ctx context.Context, topic *v1alpha1.Topic, l logr.Logger) (*v1alpha1.Topic, ctrl.Result, error) {
+func (r *TopicReconciler) reconcile(ctx context.Context, topic *v1alpha2.Topic, l logr.Logger) (*v1alpha2.Topic, ctrl.Result, error) {
 	l = l.WithName("reconcile")
 
 	interval := v1.Duration{Duration: time.Second * 3}
@@ -148,13 +149,13 @@ func (r *TopicReconciler) reconcile(ctx context.Context, topic *v1alpha1.Topic, 
 
 	if topic.Status.ObservedGeneration != topic.Generation {
 		topic.Status.ObservedGeneration = topic.Generation
-		topic = v1alpha1.TopicProgressing(topic)
+		topic = v1alpha2.TopicProgressing(topic)
 		l.V(TraceLevel).Info("bump observed generation", "observed generation", topic.Generation)
 	}
 
 	kafkaClient, err := r.createKafkaClient(ctx, topic)
 	if err != nil {
-		return v1alpha1.TopicFailed(topic), ctrl.Result{}, err
+		return v1alpha2.TopicFailed(topic), ctrl.Result{}, err
 	}
 	defer kafkaClient.Close()
 
@@ -172,15 +173,15 @@ func (r *TopicReconciler) reconcile(ctx context.Context, topic *v1alpha1.Topic, 
 		l.V(DebugLevel).Info("delete topic", "topic-name", topic.GetTopicName())
 		err = r.deleteTopic(ctx, topic, kafkaClient)
 		if err != nil {
-			return v1alpha1.TopicFailed(topic), ctrl.Result{}, fmt.Errorf("unable to delete topic: %w", err)
+			return v1alpha2.TopicFailed(topic), ctrl.Result{}, fmt.Errorf("unable to delete topic: %w", err)
 		}
-		return v1alpha1.TopicReady(topic), ctrl.Result{}, nil
+		return v1alpha2.TopicReady(topic), ctrl.Result{}, nil
 	}
 
 	if _, err = r.describeTopic(ctx, topic, kafkaClient); errors.Is(err, kerr.UnknownTopicOrPartition) {
 		err = r.createTopic(ctx, topic, kafkaClient, partition, replicationFactor)
 		if err != nil && !errors.Is(err, kerr.TopicAlreadyExists) {
-			return v1alpha1.TopicFailed(topic), ctrl.Result{}, err
+			return v1alpha2.TopicFailed(topic), ctrl.Result{}, err
 		}
 		l.V(DebugLevel).Info("topic created",
 			"topic-name", topic.GetTopicName(),
@@ -188,7 +189,7 @@ func (r *TopicReconciler) reconcile(ctx context.Context, topic *v1alpha1.Topic, 
 			"topic-partition", partition,
 			"topic-replication-factor", replicationFactor)
 		r.reportStatusTopicConfiguration(ctx, topic, kafkaClient)
-		return v1alpha1.TopicReady(topic), ctrl.Result{RequeueAfter: interval.Duration}, nil
+		return v1alpha2.TopicReady(topic), ctrl.Result{RequeueAfter: interval.Duration}, nil
 	}
 
 	defer func() {
@@ -199,13 +200,13 @@ func (r *TopicReconciler) reconcile(ctx context.Context, topic *v1alpha1.Topic, 
 	var numReplicas int16
 	numReplicas, err = r.reconcilePartition(ctx, topic, kafkaClient, int(partition))
 	if err != nil {
-		return v1alpha1.TopicFailed(topic), ctrl.Result{}, err
+		return v1alpha2.TopicFailed(topic), ctrl.Result{}, err
 	}
 
 	l.V(DebugLevel).Info("topic configuration synchronization", "topic-configuration", topic.Spec.AdditionalConfig)
 	resp, err := r.describeTopic(ctx, topic, kafkaClient)
 	if err != nil {
-		return v1alpha1.TopicFailed(topic), ctrl.Result{}, err
+		return v1alpha2.TopicFailed(topic), ctrl.Result{}, err
 	}
 
 	setConf, specialWriteConf, deleteConf := generateConf(resp.Resources[0].Configs, topic.Spec.AdditionalConfig, replicationFactor, numReplicas)
@@ -216,38 +217,38 @@ func (r *TopicReconciler) reconcile(ctx context.Context, topic *v1alpha1.Topic, 
 	// https://github.com/redpanda-data/redpanda/issues/4499
 	if len(specialWriteConf) > 0 {
 		if err = r.alterTopicConfiguration(ctx, topic, specialWriteConf, deleteConf, kafkaClient, l); err != nil {
-			return v1alpha1.TopicFailed(topic), ctrl.Result{}, err
+			return v1alpha2.TopicFailed(topic), ctrl.Result{}, err
 		}
 	}
 
 	if err = r.alterTopicConfiguration(ctx, topic, setConf, deleteConf, kafkaClient, l); err != nil {
-		return v1alpha1.TopicFailed(topic), ctrl.Result{}, err
+		return v1alpha2.TopicFailed(topic), ctrl.Result{}, err
 	}
 
 	return r.successfulTopicReconciliation(topic), ctrl.Result{RequeueAfter: interval.Duration}, nil
 }
 
-func (r *TopicReconciler) successfulTopicReconciliation(topic *v1alpha1.Topic) *v1alpha1.Topic {
+func (r *TopicReconciler) successfulTopicReconciliation(topic *v1alpha2.Topic) *v1alpha2.Topic {
 	if r.EventRecorder != nil {
 		r.EventRecorder.AnnotatedEventf(topic,
 			map[string]string{v2.GroupVersion.Group + revisionPath: topic.ResourceVersion},
 			corev1.EventTypeNormal, v1alpha1.EventTopicSynced, "configuration synced")
 	}
-	return v1alpha1.TopicReady(topic)
+	return v1alpha2.TopicReady(topic)
 }
 
-func (r *TopicReconciler) reportStatusTopicConfiguration(ctx context.Context, topic *v1alpha1.Topic, kafkaClient *kgo.Client) {
+func (r *TopicReconciler) reportStatusTopicConfiguration(ctx context.Context, topic *v1alpha2.Topic, kafkaClient *kgo.Client) {
 	resp, err := r.describeTopic(ctx, topic, kafkaClient)
 	if err != nil {
-		v1alpha1.TopicFailed(topic)
+		v1alpha2.TopicFailed(topic)
 		return
 	}
 
-	topic.Status.TopicConfiguration = make([]v1alpha1.Configuration, 0, len(resp.Resources[0].Configs))
+	topic.Status.TopicConfiguration = make([]v1alpha2.Configuration, 0, len(resp.Resources[0].Configs))
 
 	for i := range resp.Resources[0].Configs {
 		conf := resp.Resources[0].Configs[i]
-		topicConf := v1alpha1.Configuration{
+		topicConf := v1alpha2.Configuration{
 			Name:          conf.Name,
 			Value:         conf.Value,
 			ReadOnly:      conf.ReadOnly,
@@ -260,7 +261,7 @@ func (r *TopicReconciler) reportStatusTopicConfiguration(ctx context.Context, to
 		}
 		for j := range conf.ConfigSynonyms {
 			synonyms := conf.ConfigSynonyms[j]
-			topicConf.ConfigSynonyms = append(topicConf.ConfigSynonyms, v1alpha1.ConfigSynonyms{
+			topicConf.ConfigSynonyms = append(topicConf.ConfigSynonyms, v1alpha2.ConfigSynonyms{
 				Name:        synonyms.Name,
 				Value:       synonyms.Value,
 				Source:      synonyms.Source.String(),
@@ -279,7 +280,7 @@ func convertUnknownTags(tags kmsg.Tags) map[string]string {
 	return result
 }
 
-func (r *TopicReconciler) reconcilePartition(ctx context.Context, topic *v1alpha1.Topic, cl *kgo.Client, partition int) (int16, error) {
+func (r *TopicReconciler) reconcilePartition(ctx context.Context, topic *v1alpha2.Topic, cl *kgo.Client, partition int) (int16, error) {
 	reqMetadata := kmsg.NewPtrMetadataRequest()
 	reqTopic := kmsg.NewMetadataRequestTopic()
 	reqTopic.Topic = kmsg.StringPtr(topic.GetTopicName())
@@ -327,7 +328,7 @@ func (r *TopicReconciler) reconcilePartition(ctx context.Context, topic *v1alpha
 	return int16(len(respMetadata.Topics[0].Partitions[0].Replicas)), nil
 }
 
-func (r *TopicReconciler) alterTopicConfiguration(ctx context.Context, topic *v1alpha1.Topic, setConf map[string]string, deleteConf map[string]any, kafkaClient *kgo.Client, l logr.Logger) error {
+func (r *TopicReconciler) alterTopicConfiguration(ctx context.Context, topic *v1alpha2.Topic, setConf map[string]string, deleteConf map[string]any, kafkaClient *kgo.Client, l logr.Logger) error {
 	l.WithName("alterTopicConfiguration")
 	reqAltConfig := kmsg.NewPtrIncrementalAlterConfigsRequest()
 	size := len(setConf) + len(deleteConf)
@@ -387,7 +388,7 @@ func (r *TopicReconciler) alterTopicConfiguration(ctx context.Context, topic *v1
 	return nil
 }
 
-func (r *TopicReconciler) describeTopic(ctx context.Context, topic *v1alpha1.Topic, kafkaClient *kgo.Client) (*kmsg.DescribeConfigsResponse, error) {
+func (r *TopicReconciler) describeTopic(ctx context.Context, topic *v1alpha2.Topic, kafkaClient *kgo.Client) (*kmsg.DescribeConfigsResponse, error) {
 	req := kmsg.NewPtrDescribeConfigsRequest()
 	reqResource := kmsg.NewDescribeConfigsRequestResource()
 	reqResource.ResourceType = kmsg.ConfigResourceTypeTopic
@@ -413,7 +414,7 @@ func (r *TopicReconciler) describeTopic(ctx context.Context, topic *v1alpha1.Top
 	return resp, nil
 }
 
-func (r *TopicReconciler) createTopic(ctx context.Context, topic *v1alpha1.Topic, kafkaClient *kgo.Client, partition int32, replicationFactor int16) error {
+func (r *TopicReconciler) createTopic(ctx context.Context, topic *v1alpha2.Topic, kafkaClient *kgo.Client, partition int32, replicationFactor int16) error {
 	req := kmsg.NewCreateTopicsRequest()
 	rt := kmsg.NewCreateTopicsRequestTopic()
 	rt.Topic = topic.GetTopicName()
@@ -454,7 +455,7 @@ func (r *TopicReconciler) createTopic(ctx context.Context, topic *v1alpha1.Topic
 	return nil
 }
 
-func (r *TopicReconciler) deleteTopic(ctx context.Context, topic *v1alpha1.Topic, kafkaClient *kgo.Client) error {
+func (r *TopicReconciler) deleteTopic(ctx context.Context, topic *v1alpha2.Topic, kafkaClient *kgo.Client) error {
 	req := kmsg.NewDeleteTopicsRequest()
 	req.TopicNames = []string{topic.GetTopicName()}
 	rt := kmsg.NewDeleteTopicsRequestTopic()
@@ -484,9 +485,9 @@ func (r *TopicReconciler) deleteTopic(ctx context.Context, topic *v1alpha1.Topic
 	return nil
 }
 
-func (r *TopicReconciler) patchTopicStatus(ctx context.Context, topic *v1alpha1.Topic, l logr.Logger) error {
+func (r *TopicReconciler) patchTopicStatus(ctx context.Context, topic *v1alpha2.Topic, l logr.Logger) error {
 	key := client.ObjectKeyFromObject(topic)
-	latest := &v1alpha1.Topic{}
+	latest := &v1alpha2.Topic{}
 	err := r.Client.Get(ctx, key, latest)
 	if client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("retrieve current topic resource for update statue: %w", err)
@@ -550,7 +551,7 @@ func generateConf(
 	return setConf, specialSetConf, deleteConf
 }
 
-func (r *TopicReconciler) createKafkaClient(ctx context.Context, topic *v1alpha1.Topic) (*kgo.Client, error) {
+func (r *TopicReconciler) createKafkaClient(ctx context.Context, topic *v1alpha2.Topic) (*kgo.Client, error) {
 	if topic.Spec.KafkaAPISpec == nil {
 		return nil, ErrEmptyKafkaAPISpec
 	}
@@ -558,7 +559,7 @@ func (r *TopicReconciler) createKafkaClient(ctx context.Context, topic *v1alpha1
 	return r.Factory.GetClient(ctx, topic.Namespace, topic.Spec.MetricsNamespace, topic.Spec.KafkaAPISpec)
 }
 
-func (r *TopicReconciler) recordErrorEvent(err error, topic *v1alpha1.Topic, eventType, message string, args ...any) error {
+func (r *TopicReconciler) recordErrorEvent(err error, topic *v1alpha2.Topic, eventType, message string, args ...any) error {
 	if r.EventRecorder != nil {
 		var eventArgs []any
 		copy(eventArgs, args)
