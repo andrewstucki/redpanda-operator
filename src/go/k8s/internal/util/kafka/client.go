@@ -14,6 +14,7 @@ import (
 	krbclient "github.com/jcmturner/gokrb5/v8/client"
 	krbconfig "github.com/jcmturner/gokrb5/v8/config"
 	"github.com/jcmturner/gokrb5/v8/keytab"
+	"github.com/redpanda-data/common-go/rpadmin"
 	"github.com/redpanda-data/console/backend/pkg/config"
 	"github.com/redpanda-data/helm-charts/pkg/kube"
 	"github.com/redpanda-data/helm-charts/pkg/redpanda"
@@ -90,18 +91,34 @@ func (c *ClientFactory) Admin(ctx context.Context, namespace string, metricNames
 
 // ClusterAdmin returns a client able to communicate with the given Redpanda cluster.
 func (c *ClientFactory) ClusterAdmin(ctx context.Context, cluster *redpandav1alpha2.Redpanda, opts ...kgo.Opt) (*kadm.Client, error) {
+	client, err := c.GetClusterClient(ctx, cluster, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return kadm.NewClient(client), nil
+}
+
+// GetClusterClient returns a simple kgo.Client able to communicate with the given cluster specified via a Redpanda cluster.
+func (c *ClientFactory) GetClusterClient(ctx context.Context, cluster *redpandav1alpha2.Redpanda, opts ...kgo.Opt) (*kgo.Client, error) {
 	release, partials, err := releaseAndPartialsFor(cluster)
 	if err != nil {
 		return nil, err
 	}
 
 	config := kube.RestToConfig(c.config)
-	client, err := redpanda.KafkaClient(config, release, partials, c.dialer, opts...)
+	return redpanda.KafkaClient(config, release, partials, c.dialer, opts...)
+}
+
+// GetAdminClusterClient returns a simple kgo.Client able to communicate with the given cluster specified via a Redpanda cluster.
+func (c *ClientFactory) GetAdminClusterClient(ctx context.Context, cluster *redpandav1alpha2.Redpanda) (*rpadmin.AdminAPI, error) {
+	release, partials, err := releaseAndPartialsFor(cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	return kadm.NewClient(client), nil
+	config := kube.RestToConfig(c.config)
+	return redpanda.AdminClient(config, release, partials, c.dialer)
 }
 
 // GetClient returns a simple kgo.Client able to communicate with the given cluster specified via KafkaAPISpec.
@@ -111,6 +128,39 @@ func (c *ClientFactory) GetClient(ctx context.Context, namespace string, metricN
 		return nil, err
 	}
 	return kgo.NewClient(append(opts, kopts...)...)
+}
+
+func (c *ClientFactory) GetAdminClient(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (*rpadmin.AdminAPI, error) {
+	if len(spec.AdminURLs) == 0 {
+		return nil, ErrEmptyBrokerList
+	}
+
+	var err error
+	var tlsConfig *tls.Config
+	if spec.TLS != nil {
+		tlsConfig, err = c.configureSpecTLS(ctx, namespace, spec)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var auth rpadmin.Auth
+	var username, password string
+	username, password, err = c.specBasicAuth(ctx, namespace, spec)
+	if err != nil {
+		return nil, err
+	}
+
+	if username != "" {
+		auth = &rpadmin.BasicAuth{
+			Username: username,
+			Password: password,
+		}
+	} else {
+		auth = &rpadmin.NopAuth{}
+	}
+
+	return rpadmin.NewDialerAdminAPI(spec.AdminURLs, auth, tlsConfig, rpadmin.DialContextFunc(c.dialer))
 }
 
 func (c *ClientFactory) configFromSpec(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec) ([]kgo.Opt, error) {
@@ -216,6 +266,25 @@ func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, 
 		Certificates:       certificates,
 		RootCAs:            caCertPool,
 	}, nil
+}
+
+func (c *ClientFactory) specBasicAuth(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (username string, password string, err error) {
+	if spec.SASL == nil {
+		return "", "", nil
+	}
+
+	switch spec.SASL.Mechanism {
+	// SASL Plain
+	case config.SASLMechanismPlain, config.SASLMechanismScramSHA256, config.SASLMechanismScramSHA512:
+		p, err := spec.SASL.Password.GetValue(ctx, c.Client, namespace, "password")
+		if err != nil {
+			return "", "", fmt.Errorf("unable to fetch sasl plain password: %w", err)
+		}
+
+		return spec.SASL.Username, string(p), nil
+	}
+
+	return "", "", fmt.Errorf("unsupported SASL mechanism: %s", spec.SASL.Mechanism)
 }
 
 func (c *ClientFactory) configureSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (kgo.Opt, error) {

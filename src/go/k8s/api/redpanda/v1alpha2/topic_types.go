@@ -111,6 +111,8 @@ type TopicSpec struct {
 type KafkaAPISpec struct {
 	// Specifies a list of broker addresses in the format <host>:<port>
 	Brokers []string `json:"brokers"`
+	// Specifies a list of admin addresses in the format <host>:<port>
+	AdminURLs []string `json:"adminUrls"`
 	// Defines TLS configuration settings for Redpanda clusters that have TLS enabled.
 	// +optional
 	TLS *KafkaTLS `json:"tls,omitempty"`

@@ -25,7 +25,7 @@ import (
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/testutils"
 )
 
-func TestReconcile(t *testing.T) { // nolint:funlen // These tests have clear subtests.
+func TestReconcileTopic(t *testing.T) { // nolint:funlen // These tests have clear subtests.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
 	defer cancel()
 

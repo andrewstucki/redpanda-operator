@@ -1042,6 +1042,11 @@ func (in *KafkaAPISpec) DeepCopyInto(out *KafkaAPISpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.AdminURLs != nil {
+		in, out := &in.AdminURLs, &out.AdminURLs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.TLS != nil {
 		in, out := &in.TLS, &out.TLS
 		*out = new(KafkaTLS)

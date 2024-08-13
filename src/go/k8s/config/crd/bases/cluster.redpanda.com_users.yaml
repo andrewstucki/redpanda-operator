@@ -103,23 +103,10 @@ spec:
                         operations:
                           description: List of operations which will be allowed or
                             denied.
-                          enum:
-                          - Read
-                          - Write
-                          - Delete
-                          - Alter
-                          - Describe
-                          - All
-                          - IdempotentWrite
-                          - ClusterAction
-                          - Create
-                          - AlterConfigs
-                          - DescribeConfigs
                           items:
                             type: string
                           minItems: 1
                           type: array
-                          uniqueItems: true
                         resource:
                           description: Indicates the resource for which given ACL
                             rule applies.
@@ -182,6 +169,12 @@ spec:
                 description: KafkaAPISpec is the configuration information for communicating
                   with a Redpanda cluster.
                 properties:
+                  adminUrls:
+                    description: Specifies a list of admin addresses in the format
+                      <host>:<port>
+                    items:
+                      type: string
+                    type: array
                   brokers:
                     description: Specifies a list of broker addresses in the format
                       <host>:<port>
@@ -397,6 +390,7 @@ spec:
                         type: object
                     type: object
                 required:
+                - adminUrls
                 - brokers
                 type: object
               quotas:

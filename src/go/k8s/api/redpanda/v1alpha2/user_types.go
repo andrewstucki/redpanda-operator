@@ -1,6 +1,10 @@
 package v1alpha2
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"fmt"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // ClusterRef represents a reference to a cluster that is being targeted.
 type ClusterRef struct {
@@ -24,6 +28,10 @@ type User struct {
 	Spec UserSpec `json:"spec,omitempty"`
 	// Represents the current status of the Redpanda user.
 	Status UserStatus `json:"status,omitempty"`
+}
+
+func (u User) RedpandaName() string {
+	return fmt.Sprintf("%s/%s", u.Namespace, u.Name)
 }
 
 // UserList contains a list of Redpanda user objects.
@@ -155,9 +163,8 @@ type ACLRule struct {
 	// +kubebuilder:default:*
 	Host string `json:"host,omitempty"`
 	// List of operations which will be allowed or denied.
-	// +kubebuilder:validation:UniqueItems=true
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:Enum=Read;Write;Delete;Alter;Describe;All;IdempotentWrite;ClusterAction;Create;AlterConfigs;DescribeConfigs
+	// +kubebuilder:validation:item:Enum=Read;Write;Delete;Alter;Describe;All;IdempotentWrite;ClusterAction;Create;AlterConfigs;DescribeConfigs
 	Operations []string `json:"operations"`
 }
 
@@ -177,4 +184,8 @@ type ACLResourceSpec struct {
 	// +kubebuilder:validation:Enum=prefix;literal
 	// +kubebuilder:default=literal
 	PatternType string `json:"patternType,omitempty"`
+}
+
+func init() {
+	SchemeBuilder.Register(&User{}, &UserList{})
 }
