@@ -1,4 +1,4 @@
-package users
+package clients
 
 import (
 	"crypto/rand"

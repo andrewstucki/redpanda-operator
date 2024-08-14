@@ -1,4 +1,4 @@
-package users
+package clients
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func (c *ClientFactory) ClientForUser(ctx context.Context, user *redpandav1alpha2.User) (*Client, error) {
+func (c *ClientFactory) UserClient(ctx context.Context, user *redpandav1alpha2.User) (*UserClient, error) {
 	kafkaClient, err := c.KafkaForUser(ctx, user)
 	if err != nil {
 		return nil, err

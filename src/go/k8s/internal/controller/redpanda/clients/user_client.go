@@ -1,4 +1,4 @@
-package users
+package clients
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func normalizeSASL(mechanism string) (kadm.ScramMechanism, error) {
 	return sasl, nil
 }
 
-type Client struct {
+type UserClient struct {
 	user              *redpandav1alpha2.User
 	factory           client.Client
 	kafkaClient       *kgo.Client
@@ -45,8 +45,8 @@ type Client struct {
 	scramAPISupported bool
 }
 
-func newClient(user *redpandav1alpha2.User, factory client.Client, kafkaClient *kgo.Client, kafkaAdminClient *kadm.Client, rpClient *rpadmin.AdminAPI, scramAPISupported bool) *Client {
-	return &Client{
+func newClient(user *redpandav1alpha2.User, factory client.Client, kafkaClient *kgo.Client, kafkaAdminClient *kadm.Client, rpClient *rpadmin.AdminAPI, scramAPISupported bool) *UserClient {
+	return &UserClient{
 		user:              user,
 		factory:           factory,
 		kafkaClient:       kafkaClient,
@@ -57,15 +57,15 @@ func newClient(user *redpandav1alpha2.User, factory client.Client, kafkaClient *
 	}
 }
 
-func (c *Client) username() string {
+func (c *UserClient) username() string {
 	return c.user.RedpandaName()
 }
 
-func (c *Client) userACLName() string {
+func (c *UserClient) userACLName() string {
 	return "User:" + c.username()
 }
 
-func (c *Client) HasUser(ctx context.Context) (bool, error) {
+func (c *UserClient) HasUser(ctx context.Context) (bool, error) {
 	if c.scramAPISupported {
 		scrams, err := c.kafkaAdminClient.DescribeUserSCRAMs(ctx, c.username())
 		if err != nil {
@@ -82,7 +82,7 @@ func (c *Client) HasUser(ctx context.Context) (bool, error) {
 	return slices.Contains(users, c.username()), nil
 }
 
-func (c *Client) ListACLs(ctx context.Context) (*kmsg.DescribeACLsResponse, error) {
+func (c *UserClient) ListACLs(ctx context.Context) (*kmsg.DescribeACLsResponse, error) {
 	ptrUsername := kmsg.StringPtr(c.userACLName())
 
 	req := kmsg.NewPtrDescribeACLsRequest()
@@ -102,7 +102,7 @@ func (c *Client) ListACLs(ctx context.Context) (*kmsg.DescribeACLsResponse, erro
 	return response, nil
 }
 
-func (c *Client) CreateACLs(ctx context.Context, acls []kmsg.CreateACLsRequestCreation) error {
+func (c *UserClient) CreateACLs(ctx context.Context, acls []kmsg.CreateACLsRequestCreation) error {
 	if len(acls) == 0 {
 		return nil
 	}
@@ -124,7 +124,7 @@ func (c *Client) CreateACLs(ctx context.Context, acls []kmsg.CreateACLsRequestCr
 	return nil
 }
 
-func (c *Client) DeleteACLs(ctx context.Context, deletions []kmsg.DeleteACLsRequestFilter) error {
+func (c *UserClient) DeleteACLs(ctx context.Context, deletions []kmsg.DeleteACLsRequestFilter) error {
 	if len(deletions) == 0 {
 		return nil
 	}
@@ -146,7 +146,7 @@ func (c *Client) DeleteACLs(ctx context.Context, deletions []kmsg.DeleteACLsRequ
 	return nil
 }
 
-func (c *Client) DeleteAllACLs(ctx context.Context) error {
+func (c *UserClient) DeleteAllACLs(ctx context.Context) error {
 	ptrUsername := kmsg.StringPtr(c.userACLName())
 
 	req := kmsg.NewPtrDeleteACLsRequest()
@@ -172,7 +172,7 @@ func (c *Client) DeleteAllACLs(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) getPassword(ctx context.Context) (string, error) {
+func (c *UserClient) getPassword(ctx context.Context) (string, error) {
 	passwordInfo := c.user.Spec.Authentication.Password
 
 	if passwordInfo != nil {
@@ -203,7 +203,7 @@ func (c *Client) getPassword(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func (c *Client) generateAndStorePassword(ctx context.Context, nn types.NamespacedName, key string) (string, error) {
+func (c *UserClient) generateAndStorePassword(ctx context.Context, nn types.NamespacedName, key string) (string, error) {
 	password, err := c.generator.Generate()
 	if err != nil {
 		return "", err
@@ -224,7 +224,7 @@ func (c *Client) generateAndStorePassword(ctx context.Context, nn types.Namespac
 	return password, nil
 }
 
-func (c *Client) CreateUser(ctx context.Context) error {
+func (c *UserClient) CreateUser(ctx context.Context) error {
 	password, err := c.getPassword(ctx)
 	if err != nil {
 		return err
@@ -246,7 +246,7 @@ func (c *Client) CreateUser(ctx context.Context) error {
 	return c.adminClient.CreateUser(ctx, c.username(), password, strings.ToUpper(c.user.Spec.Authentication.Type))
 }
 
-func (c *Client) DeleteUser(ctx context.Context) error {
+func (c *UserClient) DeleteUser(ctx context.Context) error {
 	if c.scramAPISupported {
 		_, err := c.kafkaAdminClient.AlterUserSCRAMs(ctx, []kadm.DeleteSCRAM{{
 			User: c.username(),
@@ -257,7 +257,7 @@ func (c *Client) DeleteUser(ctx context.Context) error {
 	return c.adminClient.DeleteUser(ctx, c.username())
 }
 
-func (c *Client) SyncACLs(ctx context.Context) error {
+func (c *UserClient) SyncACLs(ctx context.Context) error {
 	acls, err := c.ListACLs(ctx)
 	if err != nil {
 		return err

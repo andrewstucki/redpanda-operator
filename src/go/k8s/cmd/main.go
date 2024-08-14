@@ -51,7 +51,7 @@ import (
 	vectorizedv1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/vectorized/v1alpha1"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/pvcunbinder"
 	redpandacontrollers "github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/util/kafka"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda/clients"
 	adminutils "github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/admin"
 	consolepkg "github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/console"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/resources"
@@ -256,7 +256,7 @@ func main() {
 	case OperatorV1Mode:
 		ctrl.Log.Info("running in v1", "mode", OperatorV1Mode)
 
-		factory, err := kafka.NewClientFactory(mgr.GetConfig())
+		factory, err := clients.NewClientFactory(mgr.GetConfig())
 		if err != nil {
 			setupLog.Error(err, "Unable to initialize client factory")
 			os.Exit(1)
@@ -361,7 +361,7 @@ func main() {
 	case OperatorV2Mode:
 		ctrl.Log.Info("running in v2", "mode", OperatorV2Mode, "helm controllers enabled", enableHelmControllers, "namespace", namespace)
 
-		factory, err := kafka.NewClientFactory(mgr.GetConfig())
+		factory, err := clients.NewClientFactory(mgr.GetConfig())
 		if err != nil {
 			setupLog.Error(err, "Unable to initialize client factory")
 			os.Exit(1)

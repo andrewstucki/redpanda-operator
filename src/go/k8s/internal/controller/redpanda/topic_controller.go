@@ -33,7 +33,7 @@ import (
 
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha1"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda/users"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda/clients"
 )
 
 const (
@@ -60,7 +60,7 @@ var (
 // TopicReconciler reconciles a Topic object
 type TopicReconciler struct {
 	client.Client
-	Factory *users.ClientFactory
+	Factory *clients.ClientFactory
 	Scheme  *runtime.Scheme
 	kuberecorder.EventRecorder
 }

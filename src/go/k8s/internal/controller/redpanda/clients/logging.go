@@ -1,4 +1,4 @@
-package users
+package clients
 
 import (
 	"github.com/go-logr/logr"
