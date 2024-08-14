@@ -184,7 +184,7 @@ func TestClientFactory(t *testing.T) {
 					}
 				}
 				if tt.TLS {
-					spec.TLS = &redpandav1alpha2.KafkaTLS{
+					spec.TLS = &redpandav1alpha2.CommonTLS{
 						CaCert: &redpandav1alpha2.SecretKeyRef{
 							Name: fmt.Sprintf("%s-default-root-certificate", name),
 							Key:  corev1.TLSCertKey,

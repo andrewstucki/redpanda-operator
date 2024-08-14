@@ -6,6 +6,32 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// Defines client configuration for connecting to Redpanda's admin API.
+type AdminAPISpec struct {
+	// Specifies a list of broker addresses in the format <host>:<port>
+	URLs []string `json:"urls"`
+	// Defines TLS configuration settings for Redpanda clusters that have TLS enabled.
+	// +optional
+	TLS *CommonTLS `json:"tls,omitempty"`
+	// Defines authentication configuration settings for Redpanda clusters that have authentication enabled.
+	// +optional
+	SASL *AdminSASL `json:"sasl,omitempty"`
+}
+
+// AdminSASL configures credentials to connect to Redpanda cluster that has authentication enabled.
+type AdminSASL struct {
+	// Specifies the username.
+	// +optional
+	Username string `json:"username,omitempty"`
+	// Specifies the password.
+	// +optional
+	Password SecretKeyRef `json:"passwordSecretRef,omitempty"`
+	// Specifies the SASL/SCRAM authentication mechanism.
+	Mechanism SASLMechanism `json:"mechanism"`
+	// +optional
+	AuthToken SecretKeyRef `json:"token,omitempty"`
+}
+
 // ClusterRef represents a reference to a cluster that is being targeted.
 type ClusterRef struct {
 	// Name specifies the name of the cluster being referenced.
@@ -64,7 +90,10 @@ type UserSpec struct {
 	ClusterRef *ClusterRef `json:"clusterRef,omitempty"`
 	// KafkaAPISpec is the configuration information for communicating with a Redpanda cluster.
 	// +optional
-	KafkaAPISpec *KafkaAPISpec `json:"kafkaApiSpec,omitempty"`
+	KafkaAPISpec *KafkaAPISpec `json:"kafkaApi,omitempty"`
+	// AdminAPISpec is the configuration information for communicating with a Redpanda cluster.
+	// +optional
+	AdminAPISpec *AdminAPISpec `json:"adinApi,omitempty"`
 	// Authentication defines the authentication information for a user.
 	// If authentication is not configured, no credentials are generated.
 	// +optional

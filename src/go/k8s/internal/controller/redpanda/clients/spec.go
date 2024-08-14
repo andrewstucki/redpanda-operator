@@ -33,23 +33,23 @@ func (c *ClientFactory) KafkaForSpec(ctx context.Context, namespace string, metr
 	return kgo.NewClient(append(opts, kopts...)...)
 }
 
-func (c *ClientFactory) RedpandaAdminForSpec(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (*rpadmin.AdminAPI, error) {
-	if len(spec.AdminURLs) == 0 {
+func (c *ClientFactory) RedpandaAdminForSpec(ctx context.Context, namespace string, spec *redpandav1alpha2.AdminAPISpec) (*rpadmin.AdminAPI, error) {
+	if len(spec.URLs) == 0 {
 		return nil, ErrEmptyBrokerList
 	}
 
 	var err error
 	var tlsConfig *tls.Config
 	if spec.TLS != nil {
-		tlsConfig, err = c.configureSpecTLS(ctx, namespace, spec)
+		tlsConfig, err = c.configureSpecTLS(ctx, namespace, spec.TLS)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	var auth rpadmin.Auth
-	var username, password string
-	username, password, err = c.specBasicAuth(ctx, namespace, spec)
+	var username, password, token string
+	username, password, token, err = c.configureAdminSpecSASL(ctx, namespace, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -59,11 +59,15 @@ func (c *ClientFactory) RedpandaAdminForSpec(ctx context.Context, namespace stri
 			Username: username,
 			Password: password,
 		}
+	} else if token != "" {
+		auth = &rpadmin.BearerToken{
+			Token: token,
+		}
 	} else {
 		auth = &rpadmin.NopAuth{}
 	}
 
-	return rpadmin.NewDialerAdminAPI(spec.AdminURLs, auth, tlsConfig, rpadmin.DialContextFunc(c.dialer))
+	return rpadmin.NewDialerAdminAPI(spec.URLs, auth, tlsConfig, rpadmin.DialContextFunc(c.dialer))
 }
 
 func (c *ClientFactory) configFromSpec(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec) ([]kgo.Opt, error) {
@@ -85,7 +89,7 @@ func (c *ClientFactory) configFromSpec(ctx context.Context, namespace string, me
 	opts = append(opts, kgo.WithLogger(wrapLogger(c.logger)), kgo.WithHooks(hooks))
 
 	if spec.SASL != nil {
-		sasl, err := c.configureSpecSASL(ctx, namespace, spec)
+		sasl, err := c.configureKafkaSpecSASL(ctx, namespace, spec)
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +98,7 @@ func (c *ClientFactory) configFromSpec(ctx context.Context, namespace string, me
 	}
 
 	if spec.TLS != nil {
-		tlsConfig, err := c.configureSpecTLS(ctx, namespace, spec)
+		tlsConfig, err := c.configureSpecTLS(ctx, namespace, spec.TLS)
 		if err != nil {
 			return nil, err
 		}
@@ -115,12 +119,12 @@ func (c *ClientFactory) configFromSpec(ctx context.Context, namespace string, me
 	return opts, nil
 }
 
-func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (*tls.Config, error) {
+func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, spec *redpandav1alpha2.CommonTLS) (*tls.Config, error) {
 	var caCertPool *x509.CertPool
 
 	// Root CA
-	if spec.TLS.CaCert != nil {
-		ca, err := spec.TLS.CaCert.GetValue(ctx, c.Client, namespace, "ca.crt")
+	if spec.CaCert != nil {
+		ca, err := spec.CaCert.GetValue(ctx, c.Client, namespace, "ca.crt")
 		if err != nil {
 			return nil, fmt.Errorf("failed to read ca certificate secret: %w", err)
 		}
@@ -134,16 +138,16 @@ func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, 
 
 	// If configured load TLS cert & key - Mutual TLS
 	var certificates []tls.Certificate
-	if spec.TLS.Cert != nil && spec.TLS.Key != nil {
+	if spec.Cert != nil && spec.Key != nil {
 		// 1. Read certificates
-		cert, err := spec.TLS.Cert.GetValue(ctx, c.Client, namespace, "tls.crt")
+		cert, err := spec.Cert.GetValue(ctx, c.Client, namespace, "tls.crt")
 		if err != nil {
 			return nil, fmt.Errorf("failed to read certificate secret: %w", err)
 		}
 
 		certData := cert
 
-		key, err := spec.TLS.Cert.GetValue(ctx, c.Client, namespace, "tls.key")
+		key, err := spec.Cert.GetValue(ctx, c.Client, namespace, "tls.key")
 		if err != nil {
 			return nil, fmt.Errorf("failed to read key certificate secret: %w", err)
 		}
@@ -165,32 +169,39 @@ func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, 
 
 	return &tls.Config{
 		//nolint:gosec // InsecureSkipVerify may be true upon user's responsibility.
-		InsecureSkipVerify: spec.TLS.InsecureSkipTLSVerify,
+		InsecureSkipVerify: spec.InsecureSkipTLSVerify,
 		Certificates:       certificates,
 		RootCAs:            caCertPool,
 	}, nil
 }
 
-func (c *ClientFactory) specBasicAuth(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (username string, password string, err error) {
+func (c *ClientFactory) configureAdminSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.AdminAPISpec) (username string, password string, token string, err error) {
 	if spec.SASL == nil {
-		return "", "", nil
+		return "", "", "", nil
 	}
 
 	switch spec.SASL.Mechanism {
-	// SASL Plain
-	case config.SASLMechanismPlain, config.SASLMechanismScramSHA256, config.SASLMechanismScramSHA512:
+	// SCRAM
+	case config.SASLMechanismScramSHA256, config.SASLMechanismScramSHA512:
 		p, err := spec.SASL.Password.GetValue(ctx, c.Client, namespace, "password")
 		if err != nil {
-			return "", "", fmt.Errorf("unable to fetch sasl plain password: %w", err)
+			return "", "", "", fmt.Errorf("unable to fetch sasl password: %w", err)
 		}
 
-		return spec.SASL.Username, string(p), nil
+		return spec.SASL.Username, string(p), "", nil
+	// OAUTH
+	case config.SASLMechanismOAuthBearer:
+		token, err := spec.SASL.AuthToken.GetValue(ctx, c.Client, namespace, "password")
+		if err != nil {
+			return "", "", "", fmt.Errorf("unable to fetch sasl token: %w", err)
+		}
+		return "", "", string(token), nil
 	}
 
-	return "", "", fmt.Errorf("unsupported SASL mechanism: %s", spec.SASL.Mechanism)
+	return "", "", "", fmt.Errorf("unsupported SASL mechanism: %s", spec.SASL.Mechanism)
 }
 
-func (c *ClientFactory) configureSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (kgo.Opt, error) {
+func (c *ClientFactory) configureKafkaSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (kgo.Opt, error) {
 	switch spec.SASL.Mechanism {
 	// SASL Plain
 	case config.SASLMechanismPlain:

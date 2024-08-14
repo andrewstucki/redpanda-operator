@@ -98,9 +98,19 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 			},
 			Spec: v1alpha2.UserSpec{
 				KafkaAPISpec: &v1alpha2.KafkaAPISpec{
-					Brokers:   []string{seedBroker},
-					AdminURLs: []string{adminEndpoint},
+					Brokers: []string{seedBroker},
 					SASL: &v1alpha2.KafkaSASL{
+						Username: "superuser",
+						Password: v1alpha2.SecretKeyRef{
+							Name: "secret",
+							Key:  "password",
+						},
+						Mechanism: v1alpha2.SASLMechanismScramSHA256,
+					},
+				},
+				AdminAPISpec: &v1alpha2.AdminAPISpec{
+					URLs: []string{adminEndpoint},
+					SASL: &v1alpha2.AdminSASL{
 						Username: "superuser",
 						Password: v1alpha2.SecretKeyRef{
 							Name: "secret",
@@ -184,7 +194,7 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 }
 
 func printUserInfo(t *testing.T, step string, ctx context.Context, user *v1alpha2.User, factory *clients.ClientFactory) {
-	client, err := factory.RedpandaAdminForSpec(ctx, user.Namespace, user.Spec.KafkaAPISpec)
+	client, err := factory.RedpandaAdminForSpec(ctx, user.Namespace, user.Spec.AdminAPISpec)
 	require.NoError(t, err)
 
 	userClient, err := factory.UserClient(ctx, user)

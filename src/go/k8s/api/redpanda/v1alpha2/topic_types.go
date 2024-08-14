@@ -111,11 +111,9 @@ type TopicSpec struct {
 type KafkaAPISpec struct {
 	// Specifies a list of broker addresses in the format <host>:<port>
 	Brokers []string `json:"brokers"`
-	// Specifies a list of admin addresses in the format <host>:<port>
-	AdminURLs []string `json:"adminUrls"`
 	// Defines TLS configuration settings for Redpanda clusters that have TLS enabled.
 	// +optional
-	TLS *KafkaTLS `json:"tls,omitempty"`
+	TLS *CommonTLS `json:"tls,omitempty"`
 	// Defines authentication configuration settings for Redpanda clusters that have authentication enabled.
 	// +optional
 	SASL *KafkaSASL `json:"sasl,omitempty"`
@@ -190,8 +188,8 @@ type KafkaSASLAWSMskIam struct {
 	UserAgent string `json:"userAgent"`
 }
 
-// KafkaTLS specifies TLS configuration settings for Redpanda clusters that have authentication enabled.
-type KafkaTLS struct {
+// CommonTLS specifies TLS configuration settings for Redpanda clusters that have authentication enabled.
+type CommonTLS struct {
 	// CaCert is the reference for certificate authority used to establish TLS connection to Redpanda
 	CaCert *SecretKeyRef `json:"caCertSecretRef,omitempty"`
 	// Cert is the reference for client public certificate to establish mTLS connection to Redpanda

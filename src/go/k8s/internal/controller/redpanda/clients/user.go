@@ -64,8 +64,8 @@ func (c *ClientFactory) RedpandaAdminForUser(ctx context.Context, user *redpanda
 		return c.RedpandaAdminForCluster(ctx, &cluster)
 	}
 
-	if user.Spec.KafkaAPISpec != nil {
-		return c.RedpandaAdminForSpec(ctx, user.Namespace, user.Spec.KafkaAPISpec)
+	if user.Spec.AdminAPISpec != nil {
+		return c.RedpandaAdminForSpec(ctx, user.Namespace, user.Spec.AdminAPISpec)
 	}
 
 	return nil, errors.New("unable to determine cluster connection info")

@@ -62,12 +62,6 @@ spec:
                 description: Defines client configuration for connecting to Redpanda
                   brokers.
                 properties:
-                  adminUrls:
-                    description: Specifies a list of admin addresses in the format
-                      <host>:<port>
-                    items:
-                      type: string
-                    type: array
                   brokers:
                     description: Specifies a list of broker addresses in the format
                       <host>:<port>
@@ -283,7 +277,6 @@ spec:
                         type: object
                     type: object
                 required:
-                - adminUrls
                 - brokers
                 type: object
               metricsNamespace:
@@ -534,12 +527,6 @@ spec:
                 description: Defines client configuration for connecting to Redpanda
                   brokers.
                 properties:
-                  adminUrls:
-                    description: Specifies a list of admin addresses in the format
-                      <host>:<port>
-                    items:
-                      type: string
-                    type: array
                   brokers:
                     description: Specifies a list of broker addresses in the format
                       <host>:<port>
@@ -755,7 +742,6 @@ spec:
                         type: object
                     type: object
                 required:
-                - adminUrls
                 - brokers
                 type: object
               metricsNamespace:
