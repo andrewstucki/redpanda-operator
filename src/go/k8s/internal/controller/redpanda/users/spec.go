@@ -1,26 +1,20 @@
-package kafka
+package users
 
 import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"net"
 	"time"
 
-	"github.com/go-logr/logr"
 	krbclient "github.com/jcmturner/gokrb5/v8/client"
 	krbconfig "github.com/jcmturner/gokrb5/v8/config"
 	"github.com/jcmturner/gokrb5/v8/keytab"
 	"github.com/redpanda-data/common-go/rpadmin"
 	"github.com/redpanda-data/console/backend/pkg/config"
-	"github.com/redpanda-data/helm-charts/pkg/kube"
-	"github.com/redpanda-data/helm-charts/pkg/redpanda"
-	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha1"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
-	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/pkg/sasl/aws"
@@ -28,101 +22,10 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/oauth"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
-	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var ErrEmptyBrokerList = errors.New("empty broker list")
-
-type ClientFactory struct {
-	client.Client
-	logger logr.Logger
-	config *rest.Config
-	dialer redpanda.DialContextFunc
-}
-
-func NewClientFactory(config *rest.Config) (*ClientFactory, error) {
-	s := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(s); err != nil {
-		return nil, err
-	}
-
-	if err := redpandav1alpha2.AddToScheme(s); err != nil {
-		return nil, err
-	}
-
-	if err := redpandav1alpha1.AddToScheme(s); err != nil {
-		return nil, err
-	}
-
-	client, err := client.New(config, client.Options{Scheme: s})
-	if err != nil {
-		return nil, err
-	}
-
-	return &ClientFactory{
-		Client: client,
-		config: config,
-		logger: logr.Discard(),
-	}, nil
-}
-
-func (c *ClientFactory) WithDialer(dialer redpanda.DialContextFunc) *ClientFactory {
-	c.dialer = dialer
-	return c
-}
-
-func (c *ClientFactory) WithLogger(logger logr.Logger) *ClientFactory {
-	c.logger = logger
-	return c
-}
-
-// Admin returns a client able to communicate with the cluster defined by the given KafkaAPISpec.
-func (c *ClientFactory) Admin(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec, opts ...kgo.Opt) (*kadm.Client, error) {
-	client, err := c.GetClient(ctx, namespace, metricNamespace, spec, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return kadm.NewClient(client), nil
-}
-
-// ClusterAdmin returns a client able to communicate with the given Redpanda cluster.
-func (c *ClientFactory) ClusterAdmin(ctx context.Context, cluster *redpandav1alpha2.Redpanda, opts ...kgo.Opt) (*kadm.Client, error) {
-	client, err := c.GetClusterClient(ctx, cluster, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return kadm.NewClient(client), nil
-}
-
-// GetClusterClient returns a simple kgo.Client able to communicate with the given cluster specified via a Redpanda cluster.
-func (c *ClientFactory) GetClusterClient(ctx context.Context, cluster *redpandav1alpha2.Redpanda, opts ...kgo.Opt) (*kgo.Client, error) {
-	release, partials, err := releaseAndPartialsFor(cluster)
-	if err != nil {
-		return nil, err
-	}
-
-	config := kube.RestToConfig(c.config)
-	return redpanda.KafkaClient(config, release, partials, c.dialer, opts...)
-}
-
-// GetAdminClusterClient returns a simple kgo.Client able to communicate with the given cluster specified via a Redpanda cluster.
-func (c *ClientFactory) GetAdminClusterClient(ctx context.Context, cluster *redpandav1alpha2.Redpanda) (*rpadmin.AdminAPI, error) {
-	release, partials, err := releaseAndPartialsFor(cluster)
-	if err != nil {
-		return nil, err
-	}
-
-	config := kube.RestToConfig(c.config)
-	return redpanda.AdminClient(config, release, partials, c.dialer)
-}
-
-// GetClient returns a simple kgo.Client able to communicate with the given cluster specified via KafkaAPISpec.
-func (c *ClientFactory) GetClient(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec, opts ...kgo.Opt) (*kgo.Client, error) {
+// KafkaForSpec returns a simple kgo.Client able to communicate with the given cluster specified via KafkaAPISpec.
+func (c *ClientFactory) KafkaForSpec(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec, opts ...kgo.Opt) (*kgo.Client, error) {
 	kopts, err := c.configFromSpec(ctx, namespace, metricNamespace, spec)
 	if err != nil {
 		return nil, err
@@ -130,7 +33,7 @@ func (c *ClientFactory) GetClient(ctx context.Context, namespace string, metricN
 	return kgo.NewClient(append(opts, kopts...)...)
 }
 
-func (c *ClientFactory) GetAdminClient(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (*rpadmin.AdminAPI, error) {
+func (c *ClientFactory) RedpandaAdminForSpec(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (*rpadmin.AdminAPI, error) {
 	if len(spec.AdminURLs) == 0 {
 		return nil, ErrEmptyBrokerList
 	}

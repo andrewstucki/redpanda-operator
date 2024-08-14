@@ -5,7 +5,6 @@ import (
 
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda/users"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/util/kafka"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -18,14 +17,14 @@ import (
 // UserController provides users for clusters
 type UserController struct {
 	client.Client
-	builder *users.ClientBuilder
+	factory *users.ClientFactory
 }
 
 // NewUserController creates UserController
-func NewUserController(c client.Client, factory *kafka.ClientFactory) *UserController {
+func NewUserController(c client.Client, factory *users.ClientFactory) *UserController {
 	return &UserController{
 		Client:  c,
-		builder: users.NewClientBuilder(factory),
+		factory: factory,
 	}
 }
 
@@ -45,7 +44,7 @@ func (r *UserController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, r.Update(ctx, user)
 	}
 
-	client, err := r.builder.ForUser(ctx, user)
+	client, err := r.factory.ClientForUser(ctx, user)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

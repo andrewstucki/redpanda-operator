@@ -12,7 +12,6 @@ import (
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda/users"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/testutils"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/util/kafka"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/redpanda"
 	corev1 "k8s.io/api/core/v1"
@@ -42,7 +41,7 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 	var seedBroker string
 	var adminEndpoint string
 
-	factory, err := kafka.NewClientFactory(cfg)
+	factory, err := users.NewClientFactory(cfg)
 	require.NoError(t, err)
 
 	testNamespace := "default"
@@ -184,13 +183,11 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 	})
 }
 
-func printUserInfo(t *testing.T, step string, ctx context.Context, user *v1alpha2.User, factory *kafka.ClientFactory) {
-	builder := users.NewClientBuilder(factory)
-
-	client, err := factory.GetAdminClient(ctx, user.Namespace, user.Spec.KafkaAPISpec)
+func printUserInfo(t *testing.T, step string, ctx context.Context, user *v1alpha2.User, factory *users.ClientFactory) {
+	client, err := factory.RedpandaAdminForSpec(ctx, user.Namespace, user.Spec.KafkaAPISpec)
 	require.NoError(t, err)
 
-	userClient, err := builder.ForUser(ctx, user)
+	userClient, err := factory.ClientForUser(ctx, user)
 	require.NoError(t, err)
 
 	users, err := client.ListUsers(ctx)

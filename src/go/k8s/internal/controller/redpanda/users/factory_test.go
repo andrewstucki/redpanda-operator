@@ -1,4 +1,4 @@
-package kafka
+package users
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/k3s"
+	"github.com/twmb/franz-go/pkg/kadm"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
@@ -152,9 +153,9 @@ func TestClientFactory(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, json.Unmarshal(data, cluster.Spec.ClusterSpec))
 
-				adminClient, err := factory.ClusterAdmin(ctx, &cluster)
+				client, err := factory.KafkaForCluster(ctx, &cluster)
 				require.NoError(t, err)
-				metadata, err := adminClient.BrokerMetadata(ctx)
+				metadata, err := kadm.NewClient(client).BrokerMetadata(ctx)
 				require.NoError(t, err)
 				require.Len(t, metadata.Brokers.NodeIDs(), 1)
 			})
@@ -193,9 +194,9 @@ func TestClientFactory(t *testing.T) {
 						InsecureSkipTLSVerify: true,
 					}
 				}
-				adminClient, err := factory.Admin(ctx, name, nil, &spec)
+				client, err := factory.KafkaForSpec(ctx, name, nil, &spec)
 				require.NoError(t, err)
-				metadata, err := adminClient.BrokerMetadata(ctx)
+				metadata, err := kadm.NewClient(client).BrokerMetadata(ctx)
 				require.NoError(t, err)
 				require.Len(t, metadata.Brokers.NodeIDs(), 1)
 			})

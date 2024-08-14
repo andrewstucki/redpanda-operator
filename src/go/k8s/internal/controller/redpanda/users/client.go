@@ -8,7 +8,6 @@ import (
 
 	"github.com/redpanda-data/common-go/rpadmin"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/util/kafka"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
@@ -16,6 +15,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -37,7 +37,7 @@ func normalizeSASL(mechanism string) (kadm.ScramMechanism, error) {
 
 type Client struct {
 	user              *redpandav1alpha2.User
-	factory           *kafka.ClientFactory
+	factory           client.Client
 	kafkaClient       *kgo.Client
 	kafkaAdminClient  *kadm.Client
 	adminClient       *rpadmin.AdminAPI
@@ -45,7 +45,7 @@ type Client struct {
 	scramAPISupported bool
 }
 
-func newClient(user *redpandav1alpha2.User, factory *kafka.ClientFactory, kafkaClient *kgo.Client, kafkaAdminClient *kadm.Client, rpClient *rpadmin.AdminAPI, scramAPISupported bool) *Client {
+func newClient(user *redpandav1alpha2.User, factory client.Client, kafkaClient *kgo.Client, kafkaAdminClient *kadm.Client, rpClient *rpadmin.AdminAPI, scramAPISupported bool) *Client {
 	return &Client{
 		user:              user,
 		factory:           factory,
@@ -276,73 +276,4 @@ func (c *Client) SyncACLs(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-type ClientBuilder struct {
-	factory *kafka.ClientFactory
-}
-
-func NewClientBuilder(factory *kafka.ClientFactory) *ClientBuilder {
-	return &ClientBuilder{
-		factory: factory,
-	}
-}
-
-func (c *ClientBuilder) ForUser(ctx context.Context, user *redpandav1alpha2.User) (*Client, error) {
-	kafkaClient, err := c.kafkaClientForUser(ctx, user)
-	if err != nil {
-		return nil, err
-	}
-
-	adminClient, err := c.redpandaAdminClientForUser(ctx, user)
-	if err != nil {
-		return nil, err
-	}
-
-	kafkaAdminClient := kadm.NewClient(kafkaClient)
-	brokerAPI, err := kafkaAdminClient.ApiVersions(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, api := range brokerAPI {
-		_, _, supported := api.KeyVersions(kmsg.DescribeUserSCRAMCredentials.Int16())
-		if supported {
-			return newClient(user, c.factory, kafkaClient, kafkaAdminClient, adminClient, true), nil
-		}
-	}
-
-	return newClient(user, c.factory, kafkaClient, kafkaAdminClient, adminClient, false), nil
-}
-
-func (c *ClientBuilder) kafkaClientForUser(ctx context.Context, user *redpandav1alpha2.User) (*kgo.Client, error) {
-	if user.Spec.ClusterRef != nil {
-		var cluster redpandav1alpha2.Redpanda
-		if err := c.factory.Get(ctx, types.NamespacedName{Name: user.Spec.ClusterRef.Name, Namespace: user.Namespace}, &cluster); err != nil {
-			return nil, err
-		}
-		return c.factory.GetClusterClient(ctx, &cluster)
-	}
-
-	if user.Spec.KafkaAPISpec != nil {
-		return c.factory.GetClient(ctx, user.Namespace, nil, user.Spec.KafkaAPISpec)
-	}
-
-	return nil, errors.New("unable to determine cluster connection info")
-}
-
-func (c *ClientBuilder) redpandaAdminClientForUser(ctx context.Context, user *redpandav1alpha2.User) (*rpadmin.AdminAPI, error) {
-	if user.Spec.ClusterRef != nil {
-		var cluster redpandav1alpha2.Redpanda
-		if err := c.factory.Get(ctx, types.NamespacedName{Name: user.Spec.ClusterRef.Name, Namespace: user.Namespace}, &cluster); err != nil {
-			return nil, err
-		}
-		return c.factory.GetAdminClusterClient(ctx, &cluster)
-	}
-
-	if user.Spec.KafkaAPISpec != nil {
-		return c.factory.GetAdminClient(ctx, user.Namespace, user.Spec.KafkaAPISpec)
-	}
-
-	return nil, errors.New("unable to determine cluster connection info")
 }
