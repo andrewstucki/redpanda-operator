@@ -37,7 +37,7 @@ func releaseAndPartialsFor(cluster *redpandav1alpha2.Redpanda) (release helmette
 }
 
 // RedpandaAdminForCluster returns a simple kgo.Client able to communicate with the given cluster specified via a Redpanda cluster.
-func (c *ClientFactory) RedpandaAdminForCluster(ctx context.Context, cluster *redpandav1alpha2.Redpanda) (*rpadmin.AdminAPI, error) {
+func (c *clientFactory) RedpandaAdminForCluster(ctx context.Context, cluster *redpandav1alpha2.Redpanda) (*rpadmin.AdminAPI, error) {
 	release, partials, err := releaseAndPartialsFor(cluster)
 	if err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func (c *ClientFactory) RedpandaAdminForCluster(ctx context.Context, cluster *re
 }
 
 // KafkaForCluster returns a simple kgo.Client able to communicate with the given cluster specified via a Redpanda cluster.
-func (c *ClientFactory) KafkaForCluster(ctx context.Context, cluster *redpandav1alpha2.Redpanda, opts ...kgo.Opt) (*kgo.Client, error) {
+func (c *clientFactory) KafkaForCluster(ctx context.Context, cluster *redpandav1alpha2.Redpanda, opts ...kgo.Opt) (*kgo.Client, error) {
 	release, partials, err := releaseAndPartialsFor(cluster)
 	if err != nil {
 		return nil, err

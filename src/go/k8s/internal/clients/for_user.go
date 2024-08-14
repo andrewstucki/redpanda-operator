@@ -12,8 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func (c *ClientFactory) UserClient(ctx context.Context, user *redpandav1alpha2.User) (*UserClient, error) {
-	kafkaClient, err := c.KafkaForUser(ctx, user)
+func (c *clientFactory) UserClient(ctx context.Context, user *redpandav1alpha2.User, opts ...kgo.Opt) (UserClient, error) {
+	kafkaClient, err := c.KafkaForUser(ctx, user, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -39,23 +39,23 @@ func (c *ClientFactory) UserClient(ctx context.Context, user *redpandav1alpha2.U
 	return newClient(user, c.Client, kafkaClient, kafkaAdminClient, adminClient, false), nil
 }
 
-func (c *ClientFactory) KafkaForUser(ctx context.Context, user *redpandav1alpha2.User) (*kgo.Client, error) {
+func (c *clientFactory) KafkaForUser(ctx context.Context, user *redpandav1alpha2.User, opts ...kgo.Opt) (*kgo.Client, error) {
 	if user.Spec.ClusterRef != nil {
 		var cluster redpandav1alpha2.Redpanda
 		if err := c.Get(ctx, types.NamespacedName{Name: user.Spec.ClusterRef.Name, Namespace: user.Namespace}, &cluster); err != nil {
 			return nil, err
 		}
-		return c.KafkaForCluster(ctx, &cluster)
+		return c.KafkaForCluster(ctx, &cluster, opts...)
 	}
 
 	if user.Spec.KafkaAPISpec != nil {
-		return c.KafkaForSpec(ctx, user.Namespace, nil, user.Spec.KafkaAPISpec)
+		return c.KafkaForSpec(ctx, user.Namespace, nil, user.Spec.KafkaAPISpec, opts...)
 	}
 
 	return nil, errors.New("unable to determine cluster connection info")
 }
 
-func (c *ClientFactory) RedpandaAdminForUser(ctx context.Context, user *redpandav1alpha2.User) (*rpadmin.AdminAPI, error) {
+func (c *clientFactory) RedpandaAdminForUser(ctx context.Context, user *redpandav1alpha2.User) (*rpadmin.AdminAPI, error) {
 	if user.Spec.ClusterRef != nil {
 		var cluster redpandav1alpha2.Redpanda
 		if err := c.Get(ctx, types.NamespacedName{Name: user.Spec.ClusterRef.Name, Namespace: user.Namespace}, &cluster); err != nil {

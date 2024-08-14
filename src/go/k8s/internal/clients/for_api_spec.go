@@ -25,15 +25,56 @@ import (
 )
 
 // KafkaForSpec returns a simple kgo.Client able to communicate with the given cluster specified via KafkaAPISpec.
-func (c *ClientFactory) KafkaForSpec(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec, opts ...kgo.Opt) (*kgo.Client, error) {
-	kopts, err := c.configFromSpec(ctx, namespace, metricNamespace, spec)
-	if err != nil {
-		return nil, err
+func (c *clientFactory) KafkaForSpec(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec, opts ...kgo.Opt) (*kgo.Client, error) {
+	if len(spec.Brokers) == 0 {
+		return nil, ErrEmptyBrokerList
 	}
+	kopts := []kgo.Opt{
+		kgo.SeedBrokers(spec.Brokers...),
+	}
+
+	metricsLabel := "redpanda_operator"
+	if metricNamespace != nil && *metricNamespace != "" {
+		metricsLabel = *metricNamespace
+	}
+
+	hooks := newClientHooks(c.logger, metricsLabel)
+
+	// Create Logger
+	kopts = append(kopts, kgo.WithLogger(wrapLogger(c.logger)), kgo.WithHooks(hooks))
+
+	if spec.SASL != nil {
+		sasl, err := c.configureKafkaSpecSASL(ctx, namespace, spec)
+		if err != nil {
+			return nil, err
+		}
+
+		kopts = append(kopts, sasl)
+	}
+
+	if spec.TLS != nil {
+		tlsConfig, err := c.configureSpecTLS(ctx, namespace, spec.TLS)
+		if err != nil {
+			return nil, err
+		}
+
+		if c.dialer != nil {
+			kopts = append(kopts, kgo.Dialer(wrapTLSDialer(c.dialer, tlsConfig)))
+		} else {
+			dialer := &tls.Dialer{
+				NetDialer: &net.Dialer{Timeout: 10 * time.Second},
+				Config:    tlsConfig,
+			}
+			kopts = append(kopts, kgo.Dialer(dialer.DialContext))
+		}
+	} else if c.dialer != nil {
+		kopts = append(kopts, kgo.Dialer(c.dialer))
+	}
+
 	return kgo.NewClient(append(opts, kopts...)...)
 }
 
-func (c *ClientFactory) RedpandaAdminForSpec(ctx context.Context, namespace string, spec *redpandav1alpha2.AdminAPISpec) (*rpadmin.AdminAPI, error) {
+func (c *clientFactory) RedpandaAdminForSpec(ctx context.Context, namespace string, spec *redpandav1alpha2.AdminAPISpec) (*rpadmin.AdminAPI, error) {
 	if len(spec.URLs) == 0 {
 		return nil, ErrEmptyBrokerList
 	}
@@ -67,59 +108,10 @@ func (c *ClientFactory) RedpandaAdminForSpec(ctx context.Context, namespace stri
 		auth = &rpadmin.NopAuth{}
 	}
 
-	return rpadmin.NewDialerAdminAPI(spec.URLs, auth, tlsConfig, rpadmin.DialContextFunc(c.dialer))
+	return rpadmin.NewAdminAPIWithDialer(spec.URLs, auth, tlsConfig, rpadmin.DialContextFunc(c.dialer))
 }
 
-func (c *ClientFactory) configFromSpec(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec) ([]kgo.Opt, error) {
-	if len(spec.Brokers) == 0 {
-		return nil, ErrEmptyBrokerList
-	}
-	opts := []kgo.Opt{
-		kgo.SeedBrokers(spec.Brokers...),
-	}
-
-	metricsLabel := "redpanda_operator"
-	if metricNamespace != nil && *metricNamespace != "" {
-		metricsLabel = *metricNamespace
-	}
-
-	hooks := newClientHooks(c.logger, metricsLabel)
-
-	// Create Logger
-	opts = append(opts, kgo.WithLogger(wrapLogger(c.logger)), kgo.WithHooks(hooks))
-
-	if spec.SASL != nil {
-		sasl, err := c.configureKafkaSpecSASL(ctx, namespace, spec)
-		if err != nil {
-			return nil, err
-		}
-
-		opts = append(opts, sasl)
-	}
-
-	if spec.TLS != nil {
-		tlsConfig, err := c.configureSpecTLS(ctx, namespace, spec.TLS)
-		if err != nil {
-			return nil, err
-		}
-
-		if c.dialer != nil {
-			opts = append(opts, kgo.Dialer(wrapTLSDialer(c.dialer, tlsConfig)))
-		} else {
-			dialer := &tls.Dialer{
-				NetDialer: &net.Dialer{Timeout: 10 * time.Second},
-				Config:    tlsConfig,
-			}
-			opts = append(opts, kgo.Dialer(dialer.DialContext))
-		}
-	} else if c.dialer != nil {
-		opts = append(opts, kgo.Dialer(c.dialer))
-	}
-
-	return opts, nil
-}
-
-func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, spec *redpandav1alpha2.CommonTLS) (*tls.Config, error) {
+func (c *clientFactory) configureSpecTLS(ctx context.Context, namespace string, spec *redpandav1alpha2.CommonTLS) (*tls.Config, error) {
 	var caCertPool *x509.CertPool
 
 	// Root CA
@@ -175,7 +167,7 @@ func (c *ClientFactory) configureSpecTLS(ctx context.Context, namespace string, 
 	}, nil
 }
 
-func (c *ClientFactory) configureAdminSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.AdminAPISpec) (username string, password string, token string, err error) {
+func (c *clientFactory) configureAdminSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.AdminAPISpec) (username string, password string, token string, err error) {
 	if spec.SASL == nil {
 		return "", "", "", nil
 	}
@@ -201,7 +193,7 @@ func (c *ClientFactory) configureAdminSpecSASL(ctx context.Context, namespace st
 	return "", "", "", fmt.Errorf("unsupported SASL mechanism: %s", spec.SASL.Mechanism)
 }
 
-func (c *ClientFactory) configureKafkaSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (kgo.Opt, error) {
+func (c *clientFactory) configureKafkaSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.KafkaAPISpec) (kgo.Opt, error) {
 	switch spec.SASL.Mechanism {
 	// SASL Plain
 	case config.SASLMechanismPlain:

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda/clients"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/clients"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -17,11 +17,11 @@ import (
 // UserController provides users for clusters
 type UserController struct {
 	client.Client
-	factory *clients.ClientFactory
+	factory clients.ClientFactory
 }
 
 // NewUserController creates UserController
-func NewUserController(c client.Client, factory *clients.ClientFactory) *UserController {
+func NewUserController(c client.Client, factory clients.ClientFactory) *UserController {
 	return &UserController{
 		Client:  c,
 		factory: factory,

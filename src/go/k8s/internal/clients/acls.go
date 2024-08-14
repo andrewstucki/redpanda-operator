@@ -39,19 +39,19 @@ func aclRuleFromCreation(creation kmsg.CreateACLsRequestCreation) aclRule {
 	}
 }
 
-func aclRuleSetFromACLs(acls *kmsg.DescribeACLsResponse) map[aclRule]struct{} {
+func aclRuleSetFromACLs(acls []kmsg.DescribeACLsResponseResource) map[aclRule]struct{} {
 	rules := map[aclRule]struct{}{}
 
 	if acls == nil {
 		return rules
 	}
 
-	for _, acls := range acls.Resources {
-		for _, acl := range acls.ACLs {
+	for _, resource := range acls {
+		for _, acl := range resource.ACLs {
 			rules[aclRule{
-				ResourceType:        acls.ResourceType,
-				ResourceName:        acls.ResourceName,
-				ResourcePatternType: acls.ResourcePatternType,
+				ResourceType:        resource.ResourceType,
+				ResourceName:        resource.ResourceName,
+				ResourcePatternType: resource.ResourcePatternType,
 				Principal:           acl.Principal,
 				Host:                acl.Host,
 				Operation:           acl.Operation,
@@ -63,7 +63,7 @@ func aclRuleSetFromACLs(acls *kmsg.DescribeACLsResponse) map[aclRule]struct{} {
 	return rules
 }
 
-func calculateACLs(user *redpandav1alpha2.User, acls *kmsg.DescribeACLsResponse) ([]kmsg.CreateACLsRequestCreation, []kmsg.DeleteACLsRequestFilter, error) {
+func calculateACLs(user *redpandav1alpha2.User, acls []kmsg.DescribeACLsResponseResource) ([]kmsg.CreateACLsRequestCreation, []kmsg.DeleteACLsRequestFilter, error) {
 	existing := aclRuleSetFromACLs(acls)
 	toDelete := aclRuleSetFromACLs(acls)
 
@@ -101,7 +101,7 @@ func calculateACLs(user *redpandav1alpha2.User, acls *kmsg.DescribeACLsResponse)
 			creation.PermissionType = permType
 			creation.ResourcePatternType = patternType
 			creation.ResourceName = rule.Resource.Name
-			creation.Principal = "User:" + user.RedpandaName()
+			creation.Principal = user.ACLName()
 			creation.Operation = op
 
 			aclRule := aclRuleFromCreation(creation)

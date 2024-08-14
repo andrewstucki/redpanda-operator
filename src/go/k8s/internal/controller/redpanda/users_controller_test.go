@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda/clients"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/clients"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/testutils"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/redpanda"
@@ -78,7 +78,7 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 
 	tr := NewUserController(c, factory)
 
-	require.NoError(t, factory.Create(ctx, &corev1.Secret{
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "secret",
 			Namespace: testNamespace,
@@ -169,9 +169,9 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 
 		{
 			// update
-			require.NoError(t, factory.Get(ctx, types.NamespacedName{Namespace: testNamespace, Name: createUser.Name}, &createUser))
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testNamespace, Name: createUser.Name}, &createUser))
 			createUser.Spec.Authorization = v1alpha2.UserAuthorizationSpec{}
-			require.NoError(t, factory.Update(ctx, &createUser))
+			require.NoError(t, c.Update(ctx, &createUser))
 
 			result, err = tr.Reconcile(ctx, req)
 			require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 
 		{
 			// delete
-			require.NoError(t, factory.Delete(ctx, &createUser))
+			require.NoError(t, c.Delete(ctx, &createUser))
 
 			result, err = tr.Reconcile(ctx, req)
 			require.NoError(t, err)
@@ -193,8 +193,8 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 	})
 }
 
-func printUserInfo(t *testing.T, step string, ctx context.Context, user *v1alpha2.User, factory *clients.ClientFactory) {
-	client, err := factory.RedpandaAdminForSpec(ctx, user.Namespace, user.Spec.AdminAPISpec)
+func printUserInfo(t *testing.T, step string, ctx context.Context, user *v1alpha2.User, factory clients.ClientFactory) {
+	client, err := factory.RedpandaAdminClient(ctx, user)
 	require.NoError(t, err)
 
 	userClient, err := factory.UserClient(ctx, user)
@@ -208,6 +208,6 @@ func printUserInfo(t *testing.T, step string, ctx context.Context, user *v1alpha
 
 	fmt.Printf("===========%s===========\n", step)
 	fmt.Printf("Users: %v\n", users)
-	fmt.Printf("User (%q) ACLs: %+v\n", user.RedpandaName(), userACLs.Resources)
+	fmt.Printf("User (%q) ACLs: %+v\n", user.RedpandaName(), userACLs)
 	fmt.Printf("===========%s===========\n", strings.Repeat("=", len(step)))
 }

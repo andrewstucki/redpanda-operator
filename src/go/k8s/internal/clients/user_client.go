@@ -35,7 +35,28 @@ func normalizeSASL(mechanism string) (kadm.ScramMechanism, error) {
 	return sasl, nil
 }
 
-type UserClient struct {
+// UserClient is a wrapper around user/ACL creation for a v1alpha2.User
+type UserClient interface {
+	// HasUser checks if the user associated with this client exists.
+	HasUser(ctx context.Context) (bool, error)
+	// ListACLs returns all of ACLs for the user associated with this client.
+	ListACLs(ctx context.Context) ([]kmsg.DescribeACLsResponseResource, error)
+	// CreateACLs creates the given ACLs for the user associated with this client.
+	CreateACLs(ctx context.Context, acls []kmsg.CreateACLsRequestCreation) error
+	// DeleteACLs deletes the ACLs matching the given filters for the user associated with this client.
+	DeleteACLs(ctx context.Context, deletions []kmsg.DeleteACLsRequestFilter) error
+	// DeleteAllACLs deletes all of the ACLs for the user associated with this client.
+	DeleteAllACLs(ctx context.Context) error
+	// CreateUser creates the user associated with this client.
+	CreateUser(ctx context.Context) error
+	// DeleteUser deletes the user associated with this client.
+	DeleteUser(ctx context.Context) error
+	// SyncACLs synchronizes all the ACLs specified by a v1alpha2.User, deleting an creating
+	// ACLs as necessary.
+	SyncACLs(ctx context.Context) error
+}
+
+type userClient struct {
 	user              *redpandav1alpha2.User
 	factory           client.Client
 	kafkaClient       *kgo.Client
@@ -45,8 +66,10 @@ type UserClient struct {
 	scramAPISupported bool
 }
 
-func newClient(user *redpandav1alpha2.User, factory client.Client, kafkaClient *kgo.Client, kafkaAdminClient *kadm.Client, rpClient *rpadmin.AdminAPI, scramAPISupported bool) *UserClient {
-	return &UserClient{
+var _ UserClient = (*userClient)(nil)
+
+func newClient(user *redpandav1alpha2.User, factory client.Client, kafkaClient *kgo.Client, kafkaAdminClient *kadm.Client, rpClient *rpadmin.AdminAPI, scramAPISupported bool) *userClient {
+	return &userClient{
 		user:              user,
 		factory:           factory,
 		kafkaClient:       kafkaClient,
@@ -57,15 +80,15 @@ func newClient(user *redpandav1alpha2.User, factory client.Client, kafkaClient *
 	}
 }
 
-func (c *UserClient) username() string {
+func (c *userClient) username() string {
 	return c.user.RedpandaName()
 }
 
-func (c *UserClient) userACLName() string {
-	return "User:" + c.username()
+func (c *userClient) userACLName() string {
+	return c.user.ACLName()
 }
 
-func (c *UserClient) HasUser(ctx context.Context) (bool, error) {
+func (c *userClient) HasUser(ctx context.Context) (bool, error) {
 	if c.scramAPISupported {
 		scrams, err := c.kafkaAdminClient.DescribeUserSCRAMs(ctx, c.username())
 		if err != nil {
@@ -82,7 +105,7 @@ func (c *UserClient) HasUser(ctx context.Context) (bool, error) {
 	return slices.Contains(users, c.username()), nil
 }
 
-func (c *UserClient) ListACLs(ctx context.Context) (*kmsg.DescribeACLsResponse, error) {
+func (c *userClient) ListACLs(ctx context.Context) ([]kmsg.DescribeACLsResponseResource, error) {
 	ptrUsername := kmsg.StringPtr(c.userACLName())
 
 	req := kmsg.NewPtrDescribeACLsRequest()
@@ -99,10 +122,10 @@ func (c *UserClient) ListACLs(ctx context.Context) (*kmsg.DescribeACLsResponse, 
 		return nil, errors.New(*response.ErrorMessage)
 	}
 
-	return response, nil
+	return response.Resources, nil
 }
 
-func (c *UserClient) CreateACLs(ctx context.Context, acls []kmsg.CreateACLsRequestCreation) error {
+func (c *userClient) CreateACLs(ctx context.Context, acls []kmsg.CreateACLsRequestCreation) error {
 	if len(acls) == 0 {
 		return nil
 	}
@@ -124,7 +147,7 @@ func (c *UserClient) CreateACLs(ctx context.Context, acls []kmsg.CreateACLsReque
 	return nil
 }
 
-func (c *UserClient) DeleteACLs(ctx context.Context, deletions []kmsg.DeleteACLsRequestFilter) error {
+func (c *userClient) DeleteACLs(ctx context.Context, deletions []kmsg.DeleteACLsRequestFilter) error {
 	if len(deletions) == 0 {
 		return nil
 	}
@@ -146,7 +169,7 @@ func (c *UserClient) DeleteACLs(ctx context.Context, deletions []kmsg.DeleteACLs
 	return nil
 }
 
-func (c *UserClient) DeleteAllACLs(ctx context.Context) error {
+func (c *userClient) DeleteAllACLs(ctx context.Context) error {
 	ptrUsername := kmsg.StringPtr(c.userACLName())
 
 	req := kmsg.NewPtrDeleteACLsRequest()
@@ -172,7 +195,7 @@ func (c *UserClient) DeleteAllACLs(ctx context.Context) error {
 	return nil
 }
 
-func (c *UserClient) getPassword(ctx context.Context) (string, error) {
+func (c *userClient) getPassword(ctx context.Context) (string, error) {
 	passwordInfo := c.user.Spec.Authentication.Password
 
 	if passwordInfo != nil {
@@ -203,7 +226,7 @@ func (c *UserClient) getPassword(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func (c *UserClient) generateAndStorePassword(ctx context.Context, nn types.NamespacedName, key string) (string, error) {
+func (c *userClient) generateAndStorePassword(ctx context.Context, nn types.NamespacedName, key string) (string, error) {
 	password, err := c.generator.Generate()
 	if err != nil {
 		return "", err
@@ -224,7 +247,7 @@ func (c *UserClient) generateAndStorePassword(ctx context.Context, nn types.Name
 	return password, nil
 }
 
-func (c *UserClient) CreateUser(ctx context.Context) error {
+func (c *userClient) CreateUser(ctx context.Context) error {
 	password, err := c.getPassword(ctx)
 	if err != nil {
 		return err
@@ -246,7 +269,7 @@ func (c *UserClient) CreateUser(ctx context.Context) error {
 	return c.adminClient.CreateUser(ctx, c.username(), password, strings.ToUpper(c.user.Spec.Authentication.Type))
 }
 
-func (c *UserClient) DeleteUser(ctx context.Context) error {
+func (c *userClient) DeleteUser(ctx context.Context) error {
 	if c.scramAPISupported {
 		_, err := c.kafkaAdminClient.AlterUserSCRAMs(ctx, []kadm.DeleteSCRAM{{
 			User: c.username(),
@@ -257,7 +280,7 @@ func (c *UserClient) DeleteUser(ctx context.Context) error {
 	return c.adminClient.DeleteUser(ctx, c.username())
 }
 
-func (c *UserClient) SyncACLs(ctx context.Context) error {
+func (c *userClient) SyncACLs(ctx context.Context) error {
 	acls, err := c.ListACLs(ctx)
 	if err != nil {
 		return err

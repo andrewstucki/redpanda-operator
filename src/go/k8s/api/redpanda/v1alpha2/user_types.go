@@ -60,6 +60,22 @@ func (u User) RedpandaName() string {
 	return fmt.Sprintf("%s/%s", u.Namespace, u.Name)
 }
 
+func (u User) ACLName() string {
+	return "User:" + u.RedpandaName()
+}
+
+func (u *User) GetKafkaAPISpec() *KafkaAPISpec {
+	return u.Spec.KafkaAPISpec
+}
+
+func (u *User) GetAdminAPISpec() *AdminAPISpec {
+	return u.Spec.AdminAPISpec
+}
+
+func (u *User) GetClusterRef() *ClusterRef {
+	return u.Spec.ClusterRef
+}
+
 // UserList contains a list of Redpanda user objects.
 // +kubebuilder:object:root=true
 type UserList struct {

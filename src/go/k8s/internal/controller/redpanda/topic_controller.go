@@ -33,7 +33,7 @@ import (
 
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha1"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda/clients"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/clients"
 )
 
 const (
@@ -60,7 +60,7 @@ var (
 // TopicReconciler reconciles a Topic object
 type TopicReconciler struct {
 	client.Client
-	Factory *clients.ClientFactory
+	Factory clients.ClientFactory
 	Scheme  *runtime.Scheme
 	kuberecorder.EventRecorder
 }
@@ -556,7 +556,7 @@ func (r *TopicReconciler) createKafkaClient(ctx context.Context, topic *v1alpha2
 		return nil, ErrEmptyKafkaAPISpec
 	}
 
-	return r.Factory.KafkaForSpec(ctx, topic.Namespace, topic.Spec.MetricsNamespace, topic.Spec.KafkaAPISpec)
+	return r.Factory.KafkaClient(ctx, topic)
 }
 
 func (r *TopicReconciler) recordErrorEvent(err error, topic *v1alpha2.Topic, eventType, message string, args ...any) error {

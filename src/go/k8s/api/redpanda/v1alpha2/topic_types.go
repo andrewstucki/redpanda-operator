@@ -284,6 +284,10 @@ type Topic struct {
 	Status TopicStatus `json:"status,omitempty"`
 }
 
+func (t *Topic) GetKafkaAPISpec() *KafkaAPISpec {
+	return t.Spec.KafkaAPISpec
+}
+
 //+kubebuilder:object:root=true
 
 // TopicList contains a list of Topic objects.
