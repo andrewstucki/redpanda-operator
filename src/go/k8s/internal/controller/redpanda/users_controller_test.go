@@ -2,212 +2,154 @@ package redpanda
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"os"
-	"strings"
+	"slices"
 	"testing"
 	"time"
 
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/clients"
-	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/testutils"
+	gofakeit "github.com/brianvoe/gofakeit/v7"
+	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go/modules/redpanda"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
+
+// TODO: right now we only set a bare minimum of the operation/type combinations
+// that we support, we should do more
+type testACL struct {
+	Type        string `fake:"{randomstring:[topic,group,transactionalId]}"`
+	Name        string `fake:"{word}"`
+	PatternType string `fake:"{randomstring:[literal]}"`
+	Operation   string `fake:"{randomstring:[Read,Write,Delete]}"`
+}
+
+type testUser struct {
+	*redpandav1alpha2.User `fake:"skip"`
+
+	Username   string    `fake:"{uuid}"`
+	Password   string    `fake:"{uuid}"`
+	SecretName string    `fake:"{uuid}"`
+	SecretKey  string    `fake:"{uuid}"`
+	Mechanism  string    `fake:"{randomstring:[scram-sha-256,scram-sha-512]}"`
+	ACLs       []testACL `fakesize:"1,10"`
+}
+
+func (t *testUser) toCRD(cluster *testCluster) *redpandav1alpha2.User {
+	rules := []redpandav1alpha2.ACLRule{}
+	for _, acl := range t.ACLs {
+		rules = append(rules, redpandav1alpha2.ACLRule{
+			Type: "allow",
+			Resource: redpandav1alpha2.ACLResourceSpec{
+				Type:        acl.Type,
+				Name:        acl.Name,
+				PatternType: acl.PatternType,
+			},
+			Operations: []string{acl.Operation},
+		})
+	}
+
+	return &redpandav1alpha2.User{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      t.Username,
+			Namespace: cluster.namespace,
+		},
+		Spec: redpandav1alpha2.UserSpec{
+			KafkaAPISpec: cluster.kafkaAPISpec,
+			AdminAPISpec: cluster.adminAPISpec,
+			Authentication: redpandav1alpha2.UserAuthenticationSpec{
+				Type: t.Mechanism,
+				Password: &redpandav1alpha2.Password{
+					ValueFrom: redpandav1alpha2.PasswordSource{
+						SecretKeyRef: redpandav1alpha2.SecretKeyRef{
+							Name: t.SecretName,
+							Key:  t.SecretKey,
+						},
+					},
+				},
+			},
+			Authorization: redpandav1alpha2.UserAuthorizationSpec{
+				ACLs: rules,
+			},
+		},
+	}
+}
+
+func createTestUser(t *testing.T, ctx context.Context, cluster *testCluster) *testUser {
+	u := new(testUser)
+	require.NoError(t, gofakeit.Struct(u))
+	u.User = u.toCRD(cluster)
+	require.NoError(t, cluster.Create(ctx, u.User))
+
+	return u
+}
 
 func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clear subtests.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
 	defer cancel()
 
-	testEnv := testutils.RedpandaTestEnv{}
-	cfg, err := testEnv.StartRedpandaTestEnv(false)
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
+	cluster := createTestCluster(t, ctx)
 
-	err = v1alpha2.AddToScheme(scheme.Scheme)
-	require.NoError(t, err)
+	t.Run("lifecycle", func(t *testing.T) {
+		reconciler := NewUserController(cluster, cluster)
+		user := createTestUser(t, ctx, cluster)
 
-	c, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	require.NoError(t, err)
-	require.NotNil(t, c)
-
-	var seedBroker string
-	var adminEndpoint string
-
-	factory, err := clients.NewClientFactory(cfg)
-	require.NoError(t, err)
-
-	testNamespace := "default"
-	{
-		container, err := redpanda.Run(
-			ctx,
-			"docker.redpanda.com/redpandadata/redpanda:v24.2.1",
-			redpanda.WithEnableSASL(),
-			redpanda.WithNewServiceAccount("superuser", "test"),
-			redpanda.WithSuperusers("superuser"),
-			redpanda.WithEnableSchemaRegistryHTTPBasicAuth(),
-		)
-		require.NoError(t, err)
-		logs, err := container.Logs(ctx)
+		adminClient, err := cluster.RedpandaAdminClient(ctx, user.User)
 		require.NoError(t, err)
 
-		go func() {
-			io.Copy(os.Stdout, logs)
-		}()
-
-		t.Cleanup(func() {
-			ctxCleanup, cancelCleanup := context.WithTimeout(context.Background(), time.Minute*2)
-			defer cancelCleanup()
-			if err = container.Terminate(ctxCleanup); err != nil {
-				t.Fatalf("failed to terminate container: %s", err)
-			}
-		})
-
-		seedBroker, err = container.KafkaSeedBroker(ctx)
-		require.NoError(t, err)
-		adminEndpoint, err = container.AdminAPIAddress(ctx)
-		require.NoError(t, err)
-	}
-
-	tr := NewUserController(c, factory)
-
-	require.NoError(t, c.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "secret",
-			Namespace: testNamespace,
-		},
-		StringData: map[string]string{
-			"password": "test",
-		},
-	}))
-
-	t.Run("create_user", func(t *testing.T) {
-		username := "create-test-user"
-
-		createUser := v1alpha2.User{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      username,
-				Namespace: testNamespace,
-			},
-			Spec: v1alpha2.UserSpec{
-				KafkaAPISpec: &v1alpha2.KafkaAPISpec{
-					Brokers: []string{seedBroker},
-					SASL: &v1alpha2.KafkaSASL{
-						Username: "superuser",
-						Password: v1alpha2.SecretKeyRef{
-							Name: "secret",
-							Key:  "password",
-						},
-						Mechanism: v1alpha2.SASLMechanismScramSHA256,
-					},
-				},
-				AdminAPISpec: &v1alpha2.AdminAPISpec{
-					URLs: []string{adminEndpoint},
-					SASL: &v1alpha2.AdminSASL{
-						Username: "superuser",
-						Password: v1alpha2.SecretKeyRef{
-							Name: "secret",
-							Key:  "password",
-						},
-						Mechanism: v1alpha2.SASLMechanismScramSHA256,
-					},
-				},
-				Authentication: v1alpha2.UserAuthenticationSpec{
-					Type: "scram-sha-512",
-					Password: &v1alpha2.Password{
-						ValueFrom: v1alpha2.PasswordSource{
-							SecretKeyRef: v1alpha2.SecretKeyRef{
-								Name: "user-password",
-							},
-						},
-					},
-				},
-				Authorization: v1alpha2.UserAuthorizationSpec{
-					ACLs: []v1alpha2.ACLRule{{
-						Type: "allow",
-						Resource: v1alpha2.ACLResourceSpec{
-							Type: "topic",
-							Name: "foo",
-						},
-						Operations: []string{"Write"},
-					}},
-				},
-			},
-		}
-
-		err := c.Create(ctx, &createUser)
+		userClient, err := cluster.UserClient(ctx, user.User)
 		require.NoError(t, err)
 
 		req := ctrl.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      username,
-				Namespace: testNamespace,
-			},
+			NamespacedName: client.ObjectKeyFromObject(user),
 		}
 
-		// finalizer
-		result, err := tr.Reconcile(ctx, req)
-		require.NoError(t, err)
-		require.False(t, result.Requeue)
-		printUserInfo(t, "INITIAL", ctx, &createUser, factory)
+		requireEventually := func(t *testing.T, assertion func() bool) {
+			require.Eventually(t, func() bool {
+				// reconcile and ensure we've not errored
+				result, err := reconciler.Reconcile(ctx, req)
+				require.NoError(t, err)
+				require.False(t, result.Requeue)
 
-		{
-			// creation
-			result, err = tr.Reconcile(ctx, req)
-			require.NoError(t, err)
-			require.False(t, result.Requeue)
-
-			printUserInfo(t, "CREATE", ctx, &createUser, factory)
+				return assertion()
+			}, 5*time.Second, 10*time.Millisecond)
 		}
 
-		{
-			// update
-			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: testNamespace, Name: createUser.Name}, &createUser))
-			createUser.Spec.Authorization = v1alpha2.UserAuthorizationSpec{}
-			require.NoError(t, c.Update(ctx, &createUser))
-
-			result, err = tr.Reconcile(ctx, req)
-			require.NoError(t, err)
-			require.False(t, result.Requeue)
-
-			printUserInfo(t, "UPDATE", ctx, &createUser, factory)
+		requireUserExists := func(t *testing.T, exists bool) {
+			requireEventually(t, func() bool {
+				users, err := adminClient.ListUsers(ctx)
+				if err != nil {
+					return false
+				}
+				return slices.Contains(users, user.RedpandaName()) == exists
+			})
 		}
 
-		{
-			// delete
-			require.NoError(t, c.Delete(ctx, &createUser))
-
-			result, err = tr.Reconcile(ctx, req)
-			require.NoError(t, err)
-			require.False(t, result.Requeue)
-
-			printUserInfo(t, "DELETE", ctx, &createUser, factory)
+		requireACLLength := func(t *testing.T, expected []testACL) {
+			requireEventually(t, func() bool {
+				acls, err := userClient.ListACLs(ctx)
+				if err != nil {
+					return false
+				}
+				return len(acls) == len(expected)
+			})
 		}
+
+		// creation and finalizer
+		requireUserExists(t, true)
+		cluster.FetchLatest(t, ctx, user.User)
+		require.True(t, controllerutil.ContainsFinalizer(user.User, FinalizerKey))
+		requireACLLength(t, user.ACLs)
+
+		// update
+		user.Spec.Authorization = redpandav1alpha2.UserAuthorizationSpec{}
+		cluster.UpdateObject(t, ctx, user.User)
+		requireUserExists(t, true)
+		requireACLLength(t, nil)
+
+		// delete
+		cluster.DeleteObject(t, ctx, user.User)
+		requireUserExists(t, false)
+		requireACLLength(t, nil)
 	})
-}
-
-func printUserInfo(t *testing.T, step string, ctx context.Context, user *v1alpha2.User, factory clients.ClientFactory) {
-	client, err := factory.RedpandaAdminClient(ctx, user)
-	require.NoError(t, err)
-
-	userClient, err := factory.UserClient(ctx, user)
-	require.NoError(t, err)
-
-	users, err := client.ListUsers(ctx)
-	require.NoError(t, err)
-
-	userACLs, err := userClient.ListACLs(ctx)
-	require.NoError(t, err)
-
-	fmt.Printf("===========%s===========\n", step)
-	fmt.Printf("Users: %v\n", users)
-	fmt.Printf("User (%q) ACLs: %+v\n", user.RedpandaName(), userACLs)
-	fmt.Printf("===========%s===========\n", strings.Repeat("=", len(step)))
 }

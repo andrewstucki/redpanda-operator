@@ -11,6 +11,7 @@ import "sigs.k8s.io/controller-runtime/pkg/client"
 // KafkaConnectedObject is an interface for an object
 // that specifies connection parameters to a Kafka API
 // in the form of a KafkaAPISpec somewhere in its CRD definition.
+// +kubebuilder:object:generate=false
 type KafkaConnectedObject interface {
 	client.Object
 	GetKafkaAPISpec() *KafkaAPISpec
@@ -20,6 +21,7 @@ type KafkaConnectedObject interface {
 // that specifies connection parameters to a Kafka API in the form
 // of a KafkaAPISpec somewhere in its CRD definition as well as
 // an overriding namespace for Kafka client metrics.
+// +kubebuilder:object:generate=false
 type KafkaConnectedObjectWithMetrics interface {
 	KafkaConnectedObject
 	GetMetricsNamespace() *string
@@ -28,6 +30,7 @@ type KafkaConnectedObjectWithMetrics interface {
 // AdminConnectedObject is an interface for an object
 // that specifies connection parameters to a Redpanda Admin API
 // in the form of an AdminAPISpec somewhere in its CRD definition.
+// +kubebuilder:object:generate=false
 type AdminConnectedObject interface {
 	client.Object
 	GetAdminAPISpec() *AdminAPISpec
@@ -37,6 +40,7 @@ type AdminConnectedObject interface {
 // that specifies connection parameters to a Redpanda cluster,
 // (both the Kafka and Admin APIs) in the form of an ClusterRef
 // somewhere in its CRD definition.
+// +kubebuilder:object:generate=false
 type ClusterReferencingObject interface {
 	client.Object
 	GetClusterRef() *ClusterRef

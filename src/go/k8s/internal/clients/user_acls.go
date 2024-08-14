@@ -80,7 +80,12 @@ func calculateACLs(user *redpandav1alpha2.User, acls []kmsg.DescribeACLsResponse
 			return nil, nil, err
 		}
 
-		patternType, err := kmsg.ParseACLResourcePatternType(rule.Resource.PatternType)
+		stringPatternType := rule.Resource.PatternType
+		if stringPatternType == "prefix" {
+			stringPatternType = "prefixed"
+		}
+
+		patternType, err := kmsg.ParseACLResourcePatternType(stringPatternType)
 		if err != nil {
 			return nil, nil, err
 		}

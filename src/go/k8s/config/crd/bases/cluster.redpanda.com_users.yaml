@@ -190,9 +190,8 @@ spec:
                     type: object
                   type:
                     enum:
+                    - scram-sha-256
                     - scram-sha-512
-                    - tls
-                    - tls-external
                     type: string
                 required:
                 - type

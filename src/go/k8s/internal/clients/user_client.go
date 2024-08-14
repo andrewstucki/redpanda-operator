@@ -18,23 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var (
-	errUnsupportedSASLMechansim = errors.New("unsupported SASL mechanism")
-	supportedSASLMechanisms     = map[string]kadm.ScramMechanism{
-		"SCRAM-SHA-256": kadm.ScramSha256,
-		"SCRAM-SHA-512": kadm.ScramSha512,
-	}
-)
-
-func normalizeSASL(mechanism string) (kadm.ScramMechanism, error) {
-	sasl, ok := supportedSASLMechanisms[strings.ToUpper(mechanism)]
-	if !ok {
-		return 0, errUnsupportedSASLMechansim
-	}
-
-	return sasl, nil
-}
-
 // UserClient is a wrapper around user/ACL creation for a v1alpha2.User
 type UserClient interface {
 	// HasUser checks if the user associated with this client exists.
@@ -58,7 +41,7 @@ type UserClient interface {
 
 type userClient struct {
 	user              *redpandav1alpha2.User
-	factory           client.Client
+	client            client.Client
 	kafkaClient       *kgo.Client
 	kafkaAdminClient  *kadm.Client
 	adminClient       *rpadmin.AdminAPI
@@ -85,26 +68,24 @@ func (c *clientFactory) UserClient(ctx context.Context, user *redpandav1alpha2.U
 		return nil, err
 	}
 
+	var scramAPISupported bool
 	for _, api := range brokerAPI {
 		_, _, supported := api.KeyVersions(kmsg.DescribeUserSCRAMCredentials.Int16())
 		if supported {
-			return newClient(user, c.Client, kafkaClient, kafkaAdminClient, adminClient, true), nil
+			scramAPISupported = true
+			break
 		}
 	}
 
-	return newClient(user, c.Client, kafkaClient, kafkaAdminClient, adminClient, false), nil
-}
-
-func newClient(user *redpandav1alpha2.User, factory client.Client, kafkaClient *kgo.Client, kafkaAdminClient *kadm.Client, rpClient *rpadmin.AdminAPI, scramAPISupported bool) *userClient {
 	return &userClient{
 		user:              user,
-		factory:           factory,
+		client:            c.Client,
 		kafkaClient:       kafkaClient,
 		kafkaAdminClient:  kafkaAdminClient,
-		adminClient:       rpClient,
+		adminClient:       adminClient,
 		scramAPISupported: scramAPISupported,
 		generator:         newPasswordGenerator(),
-	}
+	}, nil
 }
 
 func (c *userClient) username() string {
@@ -234,7 +215,7 @@ func (c *userClient) getPassword(ctx context.Context) (string, error) {
 
 		var passwordSecret corev1.Secret
 		nn := types.NamespacedName{Namespace: c.user.Namespace, Name: secret}
-		if err := c.factory.Get(ctx, nn, &passwordSecret); err != nil {
+		if err := c.client.Get(ctx, nn, &passwordSecret); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return "", err
 			}
@@ -259,7 +240,7 @@ func (c *userClient) generateAndStorePassword(ctx context.Context, nn types.Name
 		return "", err
 	}
 
-	if err := c.factory.Create(ctx, &corev1.Secret{
+	if err := c.client.Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: nn.Namespace,
 			Name:      nn.Name,

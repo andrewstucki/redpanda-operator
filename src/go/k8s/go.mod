@@ -5,6 +5,7 @@ go 1.22.4
 require (
 	github.com/Masterminds/semver/v3 v3.2.1
 	github.com/Masterminds/sprig/v3 v3.2.3
+	github.com/brianvoe/gofakeit/v7 v7.0.4
 	github.com/cert-manager/cert-manager v1.14.5
 	github.com/cisco-open/k8s-objectmatcher v1.9.0
 	github.com/cloudhut/common v0.10.0

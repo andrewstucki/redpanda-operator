@@ -105,7 +105,7 @@ type QuotasSpec struct {
 
 // UserAuthenticationSpec defines the authentication mechanism enabled for this Redpanda user.
 type UserAuthenticationSpec struct {
-	// +kubebuilder:validation:Enum=scram-sha-512;tls;tls-external
+	// +kubebuilder:validation:Enum=scram-sha-256;scram-sha-512
 	// +kubebuilder:validation:Required
 	Type string `json:"type"`
 	// Password for SCRAM based authentication

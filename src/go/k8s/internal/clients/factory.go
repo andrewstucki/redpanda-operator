@@ -22,6 +22,7 @@ var (
 	ErrEmptyURLList                = errors.New("empty url list")
 	ErrInvalidKafkaClientObject    = errors.New("cannot initialize Kafka API client from given object")
 	ErrInvalidRedpandaClientObject = errors.New("cannot initialize Redpanda Admin API client from given object")
+	ErrUnsupportedSASLMechanism    = errors.New("unsupported SASL mechanism")
 )
 
 // ClientFactory is responsible for creating both high-level and low-level clients used in our
