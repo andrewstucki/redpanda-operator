@@ -26,7 +26,7 @@ require (
 	github.com/onsi/gomega v1.33.1
 	github.com/prometheus/client_golang v1.19.1
 	github.com/prometheus/common v0.55.0
-	github.com/redpanda-data/common-go/rpadmin v0.1.4
+	github.com/redpanda-data/common-go/rpadmin v0.1.5-0.20240814205445-8e6eb5806561
 	github.com/redpanda-data/console/backend v0.0.0-20240303221210-05d5d9e85f20
 	github.com/redpanda-data/helm-charts v0.0.0-20240727163741-bcb03896c296
 	github.com/redpanda-data/redpanda/src/go/rpk v0.0.0-20240105044330-c094966ca0cf
@@ -435,5 +435,3 @@ replace github.com/fluxcd/source-controller/shim => github.com/redpanda-data/flu
 replace github.com/fluxcd/helm-controller v0.37.2 => github.com/redpanda-data/helm-controller v0.37.3-0.20240119022335-c90fadbd044e
 
 replace github.com/redpanda-data/helm-charts v0.0.0-20240727163741-bcb03896c296 => ../../../../helm-charts
-
-replace github.com/redpanda-data/common-go/rpadmin v0.1.4 => ../../../../common-go/rpadmin

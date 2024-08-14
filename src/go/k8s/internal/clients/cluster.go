@@ -13,47 +13,52 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-func releaseAndPartialsFor(cluster *redpandav1alpha2.Redpanda) (release helmette.Release, partial redpandachart.PartialValues, err error) {
+func (c *clientFactory) dotFor(cluster *redpandav1alpha2.Redpanda) (*helmette.Dot, error) {
 	var values []byte
+	var partial redpandachart.PartialValues
 
-	values, err = json.Marshal(cluster.Spec.ClusterSpec)
+	values, err := json.Marshal(cluster.Spec.ClusterSpec)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	err = json.Unmarshal(values, &partial)
-	if err != nil {
-		return
+	if err := json.Unmarshal(values, &partial); err != nil {
+		return nil, err
 	}
 
-	release = helmette.Release{
+	release := helmette.Release{
 		Name:      cluster.Name,
 		Namespace: cluster.Namespace,
 		Service:   "redpanda",
 		IsInstall: true,
 	}
 
-	return
+	dot, err := redpandachart.Dot(release, partial)
+	if err != nil {
+		return nil, err
+	}
+
+	dot.KubeConfig = kube.RestToConfig(c.config)
+
+	return dot, nil
 }
 
 // RedpandaAdminForCluster returns a simple kgo.Client able to communicate with the given cluster specified via a Redpanda cluster.
 func (c *clientFactory) redpandaAdminForCluster(ctx context.Context, cluster *redpandav1alpha2.Redpanda) (*rpadmin.AdminAPI, error) {
-	release, partials, err := releaseAndPartialsFor(cluster)
+	dot, err := c.dotFor(cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	config := kube.RestToConfig(c.config)
-	return redpanda.AdminClient(config, release, partials, c.dialer)
+	return redpanda.AdminClient(dot, c.dialer)
 }
 
 // KafkaForCluster returns a simple kgo.Client able to communicate with the given cluster specified via a Redpanda cluster.
 func (c *clientFactory) kafkaForCluster(ctx context.Context, cluster *redpandav1alpha2.Redpanda, opts ...kgo.Opt) (*kgo.Client, error) {
-	release, partials, err := releaseAndPartialsFor(cluster)
+	dot, err := c.dotFor(cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	config := kube.RestToConfig(c.config)
-	return redpanda.KafkaClient(config, release, partials, c.dialer, opts...)
+	return redpanda.KafkaClient(dot, c.dialer, opts...)
 }
