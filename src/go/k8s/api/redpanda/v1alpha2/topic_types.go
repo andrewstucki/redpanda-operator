@@ -10,58 +10,44 @@
 package v1alpha2
 
 import (
-	"context"
-	"fmt"
 	"time"
 
-	"github.com/redpanda-data/console/backend/pkg/config"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// SecretKeyRef contains enough information to inspect or modify the referred Secret data
-// See https://pkg.go.dev/k8s.io/api/core/v1#ObjectReference.
-type SecretKeyRef struct {
-	// Name of the referent.
-	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-	Name string `json:"name"`
-
-	// +optional
-	// Key in Secret data to get value from
-	Key string `json:"key,omitempty"`
+func init() {
+	SchemeBuilder.Register(&Topic{}, &TopicList{})
 }
 
-// GetValue retrieves the value from `corev1.Secret{}`.
-func (s *SecretKeyRef) GetValue(
-	ctx context.Context, cl client.Client, namespace, defaultKey string,
-) ([]byte, error) {
-	secret := &corev1.Secret{}
-	if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: s.Name}, secret); err != nil {
-		return nil, fmt.Errorf("getting Secret %s/%s: %w", namespace, s.Name, err)
-	}
-
-	b, err := s.getValue(secret, namespace, defaultKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return b, nil
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:storageversion
+// Topic defines the CRD for Topic resources. See https://docs.redpanda.com/current/manage/kubernetes/manage-topics/.
+type Topic struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	// Defines the desired state of the Topic resource.
+	Spec TopicSpec `json:"spec,omitempty"`
+	// Represents the current status of the Topic resource.
+	Status TopicStatus `json:"status,omitempty"`
 }
 
-func (s *SecretKeyRef) getValue(
-	secret *corev1.Secret, namespace, defaultKey string,
-) ([]byte, error) {
-	key := s.Key
-	if key == "" {
-		key = defaultKey
-	}
+var _ KafkaConnectedObjectWithMetrics = (*Topic)(nil)
 
-	value, ok := secret.Data[key]
-	if !ok {
-		return nil, fmt.Errorf("getting value from Secret %s/%s: key %s not found", namespace, s.Name, key) //nolint:goerr113 // no need to declare new error type
+func (t *Topic) GetKafkaAPISpec() *KafkaAPISpec {
+	return t.Spec.KafkaAPISpec
+}
+
+func (t *Topic) GetMetricsNamespace() *string {
+	return t.Spec.MetricsNamespace
+}
+
+func (t *Topic) GetTopicName() string {
+	topicName := t.Name
+	if t.Spec.OverwriteTopicName != nil && *t.Spec.OverwriteTopicName != "" {
+		topicName = *t.Spec.OverwriteTopicName
 	}
-	return value, nil
+	return topicName
 }
 
 // TopicSpec defines the desired state of the topic. See https://docs.redpanda.com/current/manage/kubernetes/manage-topics/.
@@ -105,100 +91,6 @@ type TopicSpec struct {
 	// +kubebuilder:validation:Format=duration
 	// +kubebuilder:default="3s"
 	SynchronizationInterval *metav1.Duration `json:"interval,omitempty"`
-}
-
-// KafkaAPISpec configures client configuration settings for connecting to Redpanda brokers.
-type KafkaAPISpec struct {
-	// Specifies a list of broker addresses in the format <host>:<port>
-	Brokers []string `json:"brokers"`
-	// Defines TLS configuration settings for Redpanda clusters that have TLS enabled.
-	// +optional
-	TLS *CommonTLS `json:"tls,omitempty"`
-	// Defines authentication configuration settings for Redpanda clusters that have authentication enabled.
-	// +optional
-	SASL *KafkaSASL `json:"sasl,omitempty"`
-}
-
-// KafkaSASL configures credentials to connect to Redpanda cluster that has authentication enabled.
-type KafkaSASL struct {
-	// Specifies the username.
-	// +optional
-	Username string `json:"username,omitempty"`
-	// Specifies the password.
-	// +optional
-	Password SecretKeyRef `json:"passwordSecretRef,omitempty"`
-	// Specifies the SASL/SCRAM authentication mechanism.
-	Mechanism SASLMechanism `json:"mechanism"`
-	// +optional
-	OAUth KafkaSASLOAuthBearer `json:"oauth,omitempty"`
-	// +optional
-	GSSAPIConfig KafkaSASLGSSAPI `json:"gssapi,omitempty"`
-	// +optional
-	AWSMskIam KafkaSASLAWSMskIam `json:"awsMskIam,omitempty"`
-}
-
-type SASLMechanism string
-
-const (
-	SASLMechanismPlain                  SASLMechanism = config.SASLMechanismPlain
-	SASLMechanismScramSHA256            SASLMechanism = config.SASLMechanismScramSHA256
-	SASLMechanismScramSHA512            SASLMechanism = config.SASLMechanismScramSHA512
-	SASLMechanismGSSAPI                 SASLMechanism = config.SASLMechanismGSSAPI
-	SASLMechanismOAuthBearer            SASLMechanism = config.SASLMechanismOAuthBearer
-	SASLMechanismAWSManagedStreamingIAM SASLMechanism = config.SASLMechanismAWSManagedStreamingIAM
-)
-
-// KafkaSASLOAuthBearer is the config struct for the SASL OAuthBearer mechanism
-type KafkaSASLOAuthBearer struct {
-	Token SecretKeyRef `json:"tokenSecretRef"`
-}
-
-// KafkaSASLGSSAPI represents the Kafka Kerberos config.
-type KafkaSASLGSSAPI struct {
-	AuthType           string       `json:"authType"`
-	KeyTabPath         string       `json:"keyTabPath"`
-	KerberosConfigPath string       `json:"kerberosConfigPath"`
-	ServiceName        string       `json:"serviceName"`
-	Username           string       `json:"username"`
-	Password           SecretKeyRef `json:"passwordSecretRef"`
-	Realm              string       `json:"realm"`
-
-	// EnableFAST enables FAST, which is a pre-authentication framework for Kerberos.
-	// It includes a mechanism for tunneling pre-authentication exchanges using armored KDC messages.
-	// FAST provides increased resistance to passive password guessing attacks.
-	EnableFast bool `json:"enableFast"`
-}
-
-// KafkaSASLAWSMskIam is the config for AWS IAM SASL mechanism,
-// see: https://docs.aws.amazon.com/msk/latest/developerguide/iam-access-control.html
-type KafkaSASLAWSMskIam struct {
-	AccessKey string       `json:"accessKey"`
-	SecretKey SecretKeyRef `json:"secretKeySecretRef"`
-
-	// SessionToken, if non-empty, is a session / security token to use for authentication.
-	// See: https://docs.aws.amazon.com/STS/latest/APIReference/welcome.html
-	SessionToken SecretKeyRef `json:"sessionTokenSecretRef"`
-
-	// UserAgent is the user agent to for the client to use when connecting
-	// to Kafka, overriding the default "franz-go/<runtime.Version()>/<hostname>".
-	//
-	// Setting a UserAgent allows authorizing based on the aws:UserAgent
-	// condition key; see the following link for more details:
-	// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_condition-keys.html#condition-keys-useragent
-	UserAgent string `json:"userAgent"`
-}
-
-// CommonTLS specifies TLS configuration settings for Redpanda clusters that have authentication enabled.
-type CommonTLS struct {
-	// CaCert is the reference for certificate authority used to establish TLS connection to Redpanda
-	CaCert *SecretKeyRef `json:"caCertSecretRef,omitempty"`
-	// Cert is the reference for client public certificate to establish mTLS connection to Redpanda
-	Cert *SecretKeyRef `json:"certSecretRef,omitempty"`
-	// Key is the reference for client private certificate to establish mTLS connection to Redpanda
-	Key *SecretKeyRef `json:"keySecretRef,omitempty"`
-	// InsecureSkipTLSVerify can skip verifying Redpanda self-signed certificate when establish TLS connection to Redpanda
-	// +optional
-	InsecureSkipTLSVerify bool `json:"insecureSkipTlsVerify"`
 }
 
 // TopicStatus defines the observed state of the Topic resource.
@@ -271,53 +163,12 @@ type ConfigSynonyms struct {
 	UnknownTags map[string]string `json:"unknownTags,omitempty"`
 }
 
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-// +kubebuilder:storageversion
-// Topic defines the CRD for Topic resources. See https://docs.redpanda.com/current/manage/kubernetes/manage-topics/.
-type Topic struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-	// Defines the desired state of the Topic resource.
-	Spec TopicSpec `json:"spec,omitempty"`
-	// Represents the current status of the Topic resource.
-	Status TopicStatus `json:"status,omitempty"`
-}
-
-func (t *Topic) GetKafkaAPISpec() *KafkaAPISpec {
-	return t.Spec.KafkaAPISpec
-}
-
-//+kubebuilder:object:root=true
-
-// TopicList contains a list of Topic objects.
-type TopicList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	// Specifies a list of Topic resources.
-	Items []Topic `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&Topic{}, &TopicList{})
-}
-
-func (t *Topic) GetTopicName() string {
-	topicName := t.Name
-	if t.Spec.OverwriteTopicName != nil && *t.Spec.OverwriteTopicName != "" {
-		topicName = *t.Spec.OverwriteTopicName
-	}
-	return topicName
-}
-
 const (
 	// ReadyCondition indicates the resource is ready and fully reconciled.
 	// If the Condition is False, the resource SHOULD be considered to be in the process of reconciling and not a
 	// representation of actual state.
 	ReadyCondition = "Ready"
-)
 
-const (
 	// ProgressingReason indicates a condition or event observed progression, for example when the reconciliation of a
 	// resource or an action has started.
 	//
@@ -346,23 +197,23 @@ const (
 // reconciling the given Topic by setting the meta.ReadyCondition to
 // 'Unknown' for meta.ProgressingReason.
 func TopicProgressing(topic *Topic) *Topic {
-	return setCondition(ProgressingReason, "Topic reconciliation in progress", metav1.ConditionUnknown, topic)
+	return setTopicCondition(ProgressingReason, "Topic reconciliation in progress", metav1.ConditionUnknown, topic)
 }
 
 // TopicReady resets any failures and registers ready condition
 // the given Topic by setting the meta.ReadyCondition to
 // 'Ready' for meta.SucceededReason.
 func TopicReady(topic *Topic) *Topic {
-	return setCondition(SucceededReason, "Topic reconciliation succeeded", metav1.ConditionTrue, topic)
+	return setTopicCondition(SucceededReason, "Topic reconciliation succeeded", metav1.ConditionTrue, topic)
 }
 
 // TopicFailed resets all conditions to failure the given Topic
 // by setting the meta.ReadyCondition to 'Failed' for meta.FailedReason.
 func TopicFailed(topic *Topic) *Topic {
-	return setCondition(FailedReason, "Topic reconciliation failed", metav1.ConditionFalse, topic)
+	return setTopicCondition(FailedReason, "Topic reconciliation failed", metav1.ConditionFalse, topic)
 }
 
-func setCondition(reason, message string, status metav1.ConditionStatus, topic *Topic) *Topic {
+func setTopicCondition(reason, message string, status metav1.ConditionStatus, topic *Topic) *Topic {
 	condition := metav1.Condition{
 		Type:               ReadyCondition,
 		Status:             status,
@@ -385,4 +236,14 @@ func setCondition(reason, message string, status metav1.ConditionStatus, topic *
 
 	topic.Status.Conditions = append(topic.Status.Conditions, condition)
 	return topic
+}
+
+//+kubebuilder:object:root=true
+
+// TopicList contains a list of Topic objects.
+type TopicList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	// Specifies a list of Topic resources.
+	Items []Topic `json:"items"`
 }

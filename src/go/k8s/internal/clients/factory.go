@@ -17,7 +17,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var ErrEmptyBrokerList = errors.New("empty broker list")
+var (
+	ErrEmptyBrokerList             = errors.New("empty broker list")
+	ErrEmptyURLList                = errors.New("empty url list")
+	ErrInvalidKafkaClientObject    = errors.New("cannot initialize Kafka API client from given object")
+	ErrInvalidRedpandaClientObject = errors.New("cannot initialize Redpanda Admin API client from given object")
+)
 
 // ClientFactory is responsible for creating both high-level and low-level clients used in our
 // controllers.
@@ -40,94 +45,18 @@ type ClientFactory interface {
 	WithLogger(logger logr.Logger) ClientFactory
 
 	// KafkaClient initializes a kgo.Client based on the spec of the passed in struct.
-	// The struct *must* implement either the KafkaConnectedObject interface of the ClusterReferencingObject
+	// The struct *must* implement either the v1alpha2.KafkaConnectedObject interface of the v1alpha2.ClusterReferencingObject
 	// interface to properly initialize.
 	KafkaClient(ctx context.Context, object client.Object, opts ...kgo.Opt) (*kgo.Client, error)
 
 	// RedpandaAdminClient initializes a rpadmin.AdminAPI client based on the spec of the passed in struct.
-	// The struct *must* implement either the AdminConnectedObject interface of the ClusterReferencingObject
+	// The struct *must* implement either the v1alpha2.AdminConnectedObject interface of the v1alpha2.ClusterReferencingObject
 	// interface to properly initialize.
 	RedpandaAdminClient(ctx context.Context, object client.Object) (*rpadmin.AdminAPI, error)
 
 	// UserClient returns a client that can be used for managing Users and ACLs for a Redpanda cluster based on
 	// the configuration and connection information passed in via a v1alpha2.User struct.
 	UserClient(ctx context.Context, user *redpandav1alpha2.User, opts ...kgo.Opt) (UserClient, error)
-}
-
-var ErrInvalidKafkaClientObject = errors.New("cannot initialize Kafka API client from given object")
-var ErrInvalidRedpandaClientObject = errors.New("cannot initialize Redpanda Admin API client from given object")
-
-func (c *clientFactory) KafkaClient(ctx context.Context, obj client.Object, opts ...kgo.Opt) (*kgo.Client, error) {
-	namespace := obj.GetNamespace()
-
-	if o, ok := obj.(ClusterReferencingObject); ok {
-		if ref := o.GetClusterRef(); ref != nil {
-			var cluster redpandav1alpha2.Redpanda
-
-			if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, &cluster); err != nil {
-				return nil, err
-			}
-
-			return c.KafkaForCluster(ctx, &cluster, opts...)
-		}
-	}
-
-	var metricsNamespace *string
-	if o, ok := obj.(KafkaConnectedObjectWithMetrics); ok {
-		metricsNamespace = o.GetMetricsNamespace()
-	}
-
-	if o, ok := obj.(KafkaConnectedObject); ok {
-		if spec := o.GetKafkaAPISpec(); spec != nil {
-			return c.KafkaForSpec(ctx, namespace, metricsNamespace, spec, opts...)
-		}
-	}
-
-	return nil, ErrInvalidKafkaClientObject
-}
-
-type KafkaConnectedObject interface {
-	client.Object
-	GetKafkaAPISpec() *redpandav1alpha2.KafkaAPISpec
-}
-
-type KafkaConnectedObjectWithMetrics interface {
-	KafkaConnectedObject
-	GetMetricsNamespace() *string
-}
-
-func (c *clientFactory) RedpandaAdminClient(ctx context.Context, obj client.Object) (*rpadmin.AdminAPI, error) {
-	namespace := obj.GetNamespace()
-
-	if o, ok := obj.(ClusterReferencingObject); ok {
-		if ref := o.GetClusterRef(); ref != nil {
-			var cluster redpandav1alpha2.Redpanda
-
-			if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, &cluster); err != nil {
-				return nil, err
-			}
-
-			return c.RedpandaAdminForCluster(ctx, &cluster)
-		}
-	}
-
-	if o, ok := obj.(AdminConnectedObject); ok {
-		if spec := o.GetAdminAPISpec(); spec != nil {
-			return c.RedpandaAdminForSpec(ctx, namespace, spec)
-		}
-	}
-
-	return nil, ErrInvalidRedpandaClientObject
-}
-
-type AdminConnectedObject interface {
-	client.Object
-	GetAdminAPISpec() *redpandav1alpha2.AdminAPISpec
-}
-
-type ClusterReferencingObject interface {
-	client.Object
-	GetClusterRef() *redpandav1alpha2.ClusterRef
 }
 
 type clientFactory struct {
@@ -173,4 +102,85 @@ func (c *clientFactory) WithDialer(dialer redpanda.DialContextFunc) ClientFactor
 func (c *clientFactory) WithLogger(logger logr.Logger) ClientFactory {
 	c.logger = logger
 	return c
+}
+
+func (c *clientFactory) KafkaClient(ctx context.Context, obj client.Object, opts ...kgo.Opt) (*kgo.Client, error) {
+	// if we pass in a Redpanda cluster, just use it
+	if cluster, ok := obj.(*redpandav1alpha2.Redpanda); ok {
+		return c.kafkaForCluster(ctx, cluster, opts...)
+	}
+
+	cluster, err := c.getCluster(ctx, obj)
+	if err != nil {
+		return nil, err
+	}
+
+	if cluster != nil {
+		return c.kafkaForCluster(ctx, cluster, opts...)
+	}
+
+	if spec := c.getKafkaSpec(obj); spec != nil {
+		return c.kafkaForSpec(ctx, obj.GetNamespace(), c.getKafkaMetricNamespace(obj), spec, opts...)
+	}
+
+	return nil, ErrInvalidKafkaClientObject
+}
+
+func (c *clientFactory) RedpandaAdminClient(ctx context.Context, obj client.Object) (*rpadmin.AdminAPI, error) {
+	// if we pass in a Redpanda cluster, just use it
+	if cluster, ok := obj.(*redpandav1alpha2.Redpanda); ok {
+		return c.redpandaAdminForCluster(ctx, cluster)
+	}
+
+	cluster, err := c.getCluster(ctx, obj)
+	if err != nil {
+		return nil, err
+	}
+
+	if cluster != nil {
+		return c.redpandaAdminForCluster(ctx, cluster)
+	}
+
+	if spec := c.getAdminSpec(obj); spec != nil {
+		return c.redpandaAdminForSpec(ctx, obj.GetNamespace(), spec)
+	}
+
+	return nil, ErrInvalidRedpandaClientObject
+}
+
+func (c *clientFactory) getCluster(ctx context.Context, obj client.Object) (*redpandav1alpha2.Redpanda, error) {
+	if o, ok := obj.(redpandav1alpha2.ClusterReferencingObject); ok {
+		if ref := o.GetClusterRef(); ref != nil {
+			var cluster redpandav1alpha2.Redpanda
+
+			if err := c.Get(ctx, types.NamespacedName{Namespace: obj.GetNamespace(), Name: ref.Name}, &cluster); err != nil {
+				return nil, err
+			}
+
+			return &cluster, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (c *clientFactory) getKafkaSpec(obj client.Object) *redpandav1alpha2.KafkaAPISpec {
+	if o, ok := obj.(redpandav1alpha2.KafkaConnectedObject); ok {
+		return o.GetKafkaAPISpec()
+	}
+	return nil
+}
+
+func (c *clientFactory) getKafkaMetricNamespace(obj client.Object) *string {
+	if o, ok := obj.(redpandav1alpha2.KafkaConnectedObjectWithMetrics); ok {
+		return o.GetMetricsNamespace()
+	}
+	return nil
+}
+
+func (c *clientFactory) getAdminSpec(obj client.Object) *redpandav1alpha2.AdminAPISpec {
+	if o, ok := obj.(redpandav1alpha2.AdminConnectedObject); ok {
+		return o.GetAdminAPISpec()
+	}
+	return nil
 }

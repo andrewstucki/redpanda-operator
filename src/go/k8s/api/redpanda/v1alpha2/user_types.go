@@ -6,37 +6,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Defines client configuration for connecting to Redpanda's admin API.
-type AdminAPISpec struct {
-	// Specifies a list of broker addresses in the format <host>:<port>
-	URLs []string `json:"urls"`
-	// Defines TLS configuration settings for Redpanda clusters that have TLS enabled.
-	// +optional
-	TLS *CommonTLS `json:"tls,omitempty"`
-	// Defines authentication configuration settings for Redpanda clusters that have authentication enabled.
-	// +optional
-	SASL *AdminSASL `json:"sasl,omitempty"`
-}
-
-// AdminSASL configures credentials to connect to Redpanda cluster that has authentication enabled.
-type AdminSASL struct {
-	// Specifies the username.
-	// +optional
-	Username string `json:"username,omitempty"`
-	// Specifies the password.
-	// +optional
-	Password SecretKeyRef `json:"passwordSecretRef,omitempty"`
-	// Specifies the SASL/SCRAM authentication mechanism.
-	Mechanism SASLMechanism `json:"mechanism"`
-	// +optional
-	AuthToken SecretKeyRef `json:"token,omitempty"`
-}
-
-// ClusterRef represents a reference to a cluster that is being targeted.
-type ClusterRef struct {
-	// Name specifies the name of the cluster being referenced.
-	// +kubebuilder:validation:Required
-	Name string `json:"name"`
+func init() {
+	SchemeBuilder.Register(&User{}, &UserList{})
 }
 
 // User defines the CRD for Redpanda user.
@@ -56,6 +27,10 @@ type User struct {
 	Status UserStatus `json:"status,omitempty"`
 }
 
+var _ KafkaConnectedObject = (*User)(nil)
+var _ AdminConnectedObject = (*User)(nil)
+var _ ClusterReferencingObject = (*User)(nil)
+
 func (u User) RedpandaName() string {
 	return fmt.Sprintf("%s/%s", u.Namespace, u.Name)
 }
@@ -74,28 +49,6 @@ func (u *User) GetAdminAPISpec() *AdminAPISpec {
 
 func (u *User) GetClusterRef() *ClusterRef {
 	return u.Spec.ClusterRef
-}
-
-// UserList contains a list of Redpanda user objects.
-// +kubebuilder:object:root=true
-type UserList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	// Specifies a list of Redpanda user resources.
-	Items []User `json:"items"`
-}
-
-// UserStatus defines the observed state of a Redpanda user
-type UserStatus struct {
-	// Specifies the last observed generation.
-	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Conditions holds the conditions for the Redpanda user.
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ClusterRef is a reference to the cluster where the user was created.
-	// +optional
-	ClusterRef *ClusterRef `json:"clusterRef,omitempty"`
 }
 
 // UserSpec defines a user of a Redpanda cluster.
@@ -131,22 +84,6 @@ type UserTemplateSpec struct {
 	// Template for RedpandaUser resources. The template allows users
 	// to specify how the Secret with password or TLS certificates is generated.
 	Secret ResourceTemplate `json:"secret,omitempty"`
-}
-
-// ResourceTemplate specifies additional configuration for a resource.
-type ResourceTemplate struct {
-	// Metadata specifies additional metadata to associate with a resource.
-	Metadata MetadataTemplate `json:"metadata,omitempty"`
-}
-
-// MetadataTemplate defines additional metadata to associate with a resource.
-type MetadataTemplate struct {
-	// Labels specifies the Kubernetes labels to apply to a managed resource.
-	// +optional
-	Labels map[string]string `json:"labels,omitempty"`
-	// Annotations specifies the Kubernetes annotations to apply to a managed resource.
-	// +optional
-	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // QuotasSpec defines the quotas for a user.
@@ -231,6 +168,24 @@ type ACLResourceSpec struct {
 	PatternType string `json:"patternType,omitempty"`
 }
 
-func init() {
-	SchemeBuilder.Register(&User{}, &UserList{})
+// UserStatus defines the observed state of a Redpanda user
+type UserStatus struct {
+	// Specifies the last observed generation.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// Conditions holds the conditions for the Redpanda user.
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// ClusterRef is a reference to the cluster where the user was created.
+	// +optional
+	ClusterRef *ClusterRef `json:"clusterRef,omitempty"`
+}
+
+// UserList contains a list of Redpanda user objects.
+// +kubebuilder:object:root=true
+type UserList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	// Specifies a list of Redpanda user resources.
+	Items []User `json:"items"`
 }

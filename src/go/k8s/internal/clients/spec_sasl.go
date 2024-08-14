@@ -2,17 +2,11 @@ package clients
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
-	"net"
-	"time"
 
 	krbclient "github.com/jcmturner/gokrb5/v8/client"
 	krbconfig "github.com/jcmturner/gokrb5/v8/config"
 	"github.com/jcmturner/gokrb5/v8/keytab"
-	"github.com/redpanda-data/common-go/rpadmin"
 	"github.com/redpanda-data/console/backend/pkg/config"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -23,149 +17,6 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
-
-// KafkaForSpec returns a simple kgo.Client able to communicate with the given cluster specified via KafkaAPISpec.
-func (c *clientFactory) KafkaForSpec(ctx context.Context, namespace string, metricNamespace *string, spec *redpandav1alpha2.KafkaAPISpec, opts ...kgo.Opt) (*kgo.Client, error) {
-	if len(spec.Brokers) == 0 {
-		return nil, ErrEmptyBrokerList
-	}
-	kopts := []kgo.Opt{
-		kgo.SeedBrokers(spec.Brokers...),
-	}
-
-	metricsLabel := "redpanda_operator"
-	if metricNamespace != nil && *metricNamespace != "" {
-		metricsLabel = *metricNamespace
-	}
-
-	hooks := newClientHooks(c.logger, metricsLabel)
-
-	// Create Logger
-	kopts = append(kopts, kgo.WithLogger(wrapLogger(c.logger)), kgo.WithHooks(hooks))
-
-	if spec.SASL != nil {
-		sasl, err := c.configureKafkaSpecSASL(ctx, namespace, spec)
-		if err != nil {
-			return nil, err
-		}
-
-		kopts = append(kopts, sasl)
-	}
-
-	if spec.TLS != nil {
-		tlsConfig, err := c.configureSpecTLS(ctx, namespace, spec.TLS)
-		if err != nil {
-			return nil, err
-		}
-
-		if c.dialer != nil {
-			kopts = append(kopts, kgo.Dialer(wrapTLSDialer(c.dialer, tlsConfig)))
-		} else {
-			dialer := &tls.Dialer{
-				NetDialer: &net.Dialer{Timeout: 10 * time.Second},
-				Config:    tlsConfig,
-			}
-			kopts = append(kopts, kgo.Dialer(dialer.DialContext))
-		}
-	} else if c.dialer != nil {
-		kopts = append(kopts, kgo.Dialer(c.dialer))
-	}
-
-	return kgo.NewClient(append(opts, kopts...)...)
-}
-
-func (c *clientFactory) RedpandaAdminForSpec(ctx context.Context, namespace string, spec *redpandav1alpha2.AdminAPISpec) (*rpadmin.AdminAPI, error) {
-	if len(spec.URLs) == 0 {
-		return nil, ErrEmptyBrokerList
-	}
-
-	var err error
-	var tlsConfig *tls.Config
-	if spec.TLS != nil {
-		tlsConfig, err = c.configureSpecTLS(ctx, namespace, spec.TLS)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	var auth rpadmin.Auth
-	var username, password, token string
-	username, password, token, err = c.configureAdminSpecSASL(ctx, namespace, spec)
-	if err != nil {
-		return nil, err
-	}
-
-	if username != "" {
-		auth = &rpadmin.BasicAuth{
-			Username: username,
-			Password: password,
-		}
-	} else if token != "" {
-		auth = &rpadmin.BearerToken{
-			Token: token,
-		}
-	} else {
-		auth = &rpadmin.NopAuth{}
-	}
-
-	return rpadmin.NewAdminAPIWithDialer(spec.URLs, auth, tlsConfig, rpadmin.DialContextFunc(c.dialer))
-}
-
-func (c *clientFactory) configureSpecTLS(ctx context.Context, namespace string, spec *redpandav1alpha2.CommonTLS) (*tls.Config, error) {
-	var caCertPool *x509.CertPool
-
-	// Root CA
-	if spec.CaCert != nil {
-		ca, err := spec.CaCert.GetValue(ctx, c.Client, namespace, "ca.crt")
-		if err != nil {
-			return nil, fmt.Errorf("failed to read ca certificate secret: %w", err)
-		}
-
-		caCertPool = x509.NewCertPool()
-		isSuccessful := caCertPool.AppendCertsFromPEM(ca)
-		if !isSuccessful {
-			c.logger.Info("failed to append ca file to cert pool, is this a valid PEM format?")
-		}
-	}
-
-	// If configured load TLS cert & key - Mutual TLS
-	var certificates []tls.Certificate
-	if spec.Cert != nil && spec.Key != nil {
-		// 1. Read certificates
-		cert, err := spec.Cert.GetValue(ctx, c.Client, namespace, "tls.crt")
-		if err != nil {
-			return nil, fmt.Errorf("failed to read certificate secret: %w", err)
-		}
-
-		certData := cert
-
-		key, err := spec.Cert.GetValue(ctx, c.Client, namespace, "tls.key")
-		if err != nil {
-			return nil, fmt.Errorf("failed to read key certificate secret: %w", err)
-		}
-
-		keyData := key
-
-		// 2. Check if private key needs to be decrypted. Decrypt it if passphrase is given, otherwise return error
-		pemBlock, _ := pem.Decode(keyData)
-		if pemBlock == nil {
-			return nil, fmt.Errorf("no valid private key found") // nolint:goerr113 // this error will not be handled by operator
-		}
-
-		tlsCert, err := tls.X509KeyPair(certData, keyData)
-		if err != nil {
-			return nil, fmt.Errorf("cannot parse pem: %w", err)
-		}
-		certificates = []tls.Certificate{tlsCert}
-	}
-
-	return &tls.Config{
-		//nolint:gosec // InsecureSkipVerify may be true upon user's responsibility.
-		InsecureSkipVerify: spec.InsecureSkipTLSVerify,
-		Certificates:       certificates,
-		RootCAs:            caCertPool,
-	}, nil
-}
 
 func (c *clientFactory) configureAdminSpecSASL(ctx context.Context, namespace string, spec *redpandav1alpha2.AdminAPISpec) (username string, password string, token string, err error) {
 	if spec.SASL == nil {

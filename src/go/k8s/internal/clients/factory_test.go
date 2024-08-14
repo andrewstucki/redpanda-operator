@@ -10,13 +10,17 @@ import (
 
 	"github.com/redpanda-data/helm-charts/pkg/helm"
 	"github.com/redpanda-data/helm-charts/pkg/kube"
+	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha1"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/k3s"
 	"github.com/twmb/franz-go/pkg/kadm"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -38,6 +42,30 @@ func ensureMapAndSetValue(values map[string]any, name, key string, value any) {
 	}
 }
 
+type fakeObject struct {
+	metav1.ObjectMeta
+	metav1.TypeMeta
+
+	kafkaSpec *redpandav1alpha2.KafkaAPISpec
+}
+
+func wrapSpec(name string, spec *redpandav1alpha2.KafkaAPISpec) *fakeObject {
+	return &fakeObject{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: name,
+		},
+		kafkaSpec: spec,
+	}
+}
+
+func (f *fakeObject) GetKafkaAPISpec() *redpandav1alpha2.KafkaAPISpec {
+	return f.kafkaSpec
+}
+
+func (f *fakeObject) DeepCopyObject() runtime.Object {
+	return f
+}
+
 func TestClientFactory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping factory tests in short mode")
@@ -56,6 +84,13 @@ func TestClientFactory(t *testing.T) {
 	config, err := container.GetKubeConfig(ctx)
 	require.NoError(t, err)
 	restcfg, err := clientcmd.RESTConfigFromKubeConfig(config)
+	require.NoError(t, err)
+
+	s := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(s))
+	require.NoError(t, redpandav1alpha2.AddToScheme(s))
+	require.NoError(t, redpandav1alpha1.AddToScheme(s))
+	kubeClient, err := client.New(restcfg, client.Options{Scheme: s})
 	require.NoError(t, err)
 
 	helmClient, err := helm.New(helm.Options{
@@ -153,7 +188,7 @@ func TestClientFactory(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, json.Unmarshal(data, cluster.Spec.ClusterSpec))
 
-				client, err := factory.KafkaForCluster(ctx, &cluster)
+				client, err := factory.KafkaClient(ctx, &cluster)
 				require.NoError(t, err)
 				metadata, err := kadm.NewClient(client).BrokerMetadata(ctx)
 				require.NoError(t, err)
@@ -164,7 +199,7 @@ func TestClientFactory(t *testing.T) {
 				var spec redpandav1alpha2.KafkaAPISpec
 				spec.Brokers = []string{fmt.Sprintf("%s-0.%s.%s.svc:9093", name, name, name)}
 				if tt.Auth != nil {
-					require.NoError(t, factory.Create(ctx, &corev1.Secret{
+					require.NoError(t, kubeClient.Create(ctx, &corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      "secret",
 							Namespace: name,
@@ -194,7 +229,7 @@ func TestClientFactory(t *testing.T) {
 						InsecureSkipTLSVerify: true,
 					}
 				}
-				client, err := factory.KafkaForSpec(ctx, name, nil, &spec)
+				client, err := factory.KafkaClient(ctx, wrapSpec(name, &spec))
 				require.NoError(t, err)
 				metadata, err := kadm.NewClient(client).BrokerMetadata(ctx)
 				require.NoError(t, err)

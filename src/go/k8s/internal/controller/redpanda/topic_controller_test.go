@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/clients"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/testutils"
 )
 
@@ -40,6 +41,9 @@ func TestReconcileTopic(t *testing.T) { // nolint:funlen // These tests have cle
 	c, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	require.NoError(t, err)
 	require.NotNil(t, c)
+
+	factory, err := clients.NewClientFactory(cfg)
+	require.NoError(t, err)
 
 	var kafkaAdmCl *kadm.Client
 	var kafkaCl *kgo.Client
@@ -77,8 +81,9 @@ func TestReconcileTopic(t *testing.T) { // nolint:funlen // These tests have cle
 	}
 
 	tr := TopicReconciler{
-		Client: c,
-		Scheme: scheme.Scheme,
+		Client:  c,
+		Factory: factory,
+		Scheme:  scheme.Scheme,
 	}
 
 	t.Run("create_topic", func(t *testing.T) {

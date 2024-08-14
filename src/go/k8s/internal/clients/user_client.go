@@ -68,6 +68,33 @@ type userClient struct {
 
 var _ UserClient = (*userClient)(nil)
 
+func (c *clientFactory) UserClient(ctx context.Context, user *redpandav1alpha2.User, opts ...kgo.Opt) (UserClient, error) {
+	kafkaClient, err := c.KafkaClient(ctx, user, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	adminClient, err := c.RedpandaAdminClient(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+
+	kafkaAdminClient := kadm.NewClient(kafkaClient)
+	brokerAPI, err := kafkaAdminClient.ApiVersions(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, api := range brokerAPI {
+		_, _, supported := api.KeyVersions(kmsg.DescribeUserSCRAMCredentials.Int16())
+		if supported {
+			return newClient(user, c.Client, kafkaClient, kafkaAdminClient, adminClient, true), nil
+		}
+	}
+
+	return newClient(user, c.Client, kafkaClient, kafkaAdminClient, adminClient, false), nil
+}
+
 func newClient(user *redpandav1alpha2.User, factory client.Client, kafkaClient *kgo.Client, kafkaAdminClient *kadm.Client, rpClient *rpadmin.AdminAPI, scramAPISupported bool) *userClient {
 	return &userClient{
 		user:              user,
