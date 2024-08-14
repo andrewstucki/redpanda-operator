@@ -41,6 +41,7 @@ type Client struct {
 	kafkaClient       *kgo.Client
 	kafkaAdminClient  *kadm.Client
 	adminClient       *rpadmin.AdminAPI
+	generator         *passwordGenerator
 	scramAPISupported bool
 }
 
@@ -52,6 +53,7 @@ func newClient(user *redpandav1alpha2.User, factory *kafka.ClientFactory, kafkaC
 		kafkaAdminClient:  kafkaAdminClient,
 		adminClient:       rpClient,
 		scramAPISupported: scramAPISupported,
+		generator:         newPasswordGenerator(),
 	}
 }
 
@@ -145,17 +147,15 @@ func (c *Client) DeleteACLs(ctx context.Context, deletions []kmsg.DeleteACLsRequ
 }
 
 func (c *Client) DeleteAllACLs(ctx context.Context) error {
-	ptrAny := kmsg.StringPtr("any")
 	ptrUsername := kmsg.StringPtr(c.userACLName())
 
 	req := kmsg.NewPtrDeleteACLsRequest()
 	req.Filters = []kmsg.DeleteACLsRequestFilter{{
-		ResourceName:   ptrAny,
-		Host:           ptrAny,
-		PermissionType: kmsg.ACLPermissionTypeAny,
-		ResourceType:   kmsg.ACLResourceTypeAny,
-		Principal:      ptrUsername,
-		Operation:      kmsg.ACLOperationAny,
+		PermissionType:      kmsg.ACLPermissionTypeAny,
+		ResourceType:        kmsg.ACLResourceTypeAny,
+		ResourcePatternType: kmsg.ACLResourcePatternTypeAny,
+		Principal:           ptrUsername,
+		Operation:           kmsg.ACLOperationAny,
 	}}
 
 	response, err := req.RequestWith(ctx, c.kafkaClient)
@@ -204,7 +204,10 @@ func (c *Client) getPassword(ctx context.Context) (string, error) {
 }
 
 func (c *Client) generateAndStorePassword(ctx context.Context, nn types.NamespacedName, key string) (string, error) {
-	password := "changeme"
+	password, err := c.generator.Generate()
+	if err != nil {
+		return "", err
+	}
 
 	if err := c.factory.Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
+	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/controller/redpanda/users"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/testutils"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/util/kafka"
 	"github.com/stretchr/testify/require"
@@ -110,6 +112,13 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 				},
 				Authentication: v1alpha2.UserAuthenticationSpec{
 					Type: "scram-sha-512",
+					Password: &v1alpha2.Password{
+						ValueFrom: v1alpha2.PasswordSource{
+							SecretKeyRef: v1alpha2.SecretKeyRef{
+								Name: "user-password",
+							},
+						},
+					},
 				},
 				Authorization: v1alpha2.UserAuthorizationSpec{
 					ACLs: []v1alpha2.ACLRule{{
@@ -134,38 +143,64 @@ func TestReconcileUser(t *testing.T) { // nolint:funlen // These tests have clea
 			},
 		}
 
-		time.Sleep(10 * time.Second)
+		// finalizer
 		result, err := tr.Reconcile(ctx, req)
 		require.NoError(t, err)
 		require.False(t, result.Requeue)
+		printUserInfo(t, "INITIAL", ctx, &createUser, factory)
 
-		result, err = tr.Reconcile(ctx, req)
-		require.NoError(t, err)
-		require.False(t, result.Requeue)
+		{
+			// creation
+			result, err = tr.Reconcile(ctx, req)
+			require.NoError(t, err)
+			require.False(t, result.Requeue)
 
-		client, err := factory.GetAdminClient(ctx, testNamespace, createUser.Spec.KafkaAPISpec)
-		require.NoError(t, err)
+			printUserInfo(t, "CREATE", ctx, &createUser, factory)
+		}
 
-		users, err := client.ListUsers(ctx)
-		require.NoError(t, err)
+		{
+			// update
+			require.NoError(t, factory.Get(ctx, types.NamespacedName{Namespace: testNamespace, Name: createUser.Name}, &createUser))
+			createUser.Spec.Authorization = v1alpha2.UserAuthorizationSpec{}
+			require.NoError(t, factory.Update(ctx, &createUser))
 
-		fmt.Println(users)
+			result, err = tr.Reconcile(ctx, req)
+			require.NoError(t, err)
+			require.False(t, result.Requeue)
 
-		require.NoError(t, factory.Get(ctx, types.NamespacedName{Namespace: testNamespace, Name: createUser.Name}, &createUser))
-		createUser.Spec.Authorization = v1alpha2.UserAuthorizationSpec{}
-		require.NoError(t, factory.Update(ctx, &createUser))
-		result, err = tr.Reconcile(ctx, req)
-		require.NoError(t, err)
-		require.False(t, result.Requeue)
+			printUserInfo(t, "UPDATE", ctx, &createUser, factory)
+		}
 
-		require.NoError(t, factory.Delete(ctx, &createUser))
-		result, err = tr.Reconcile(ctx, req)
-		require.NoError(t, err)
-		require.False(t, result.Requeue)
+		{
+			// delete
+			require.NoError(t, factory.Delete(ctx, &createUser))
 
-		users, err = client.ListUsers(ctx)
-		require.NoError(t, err)
+			result, err = tr.Reconcile(ctx, req)
+			require.NoError(t, err)
+			require.False(t, result.Requeue)
 
-		fmt.Println(users)
+			printUserInfo(t, "DELETE", ctx, &createUser, factory)
+		}
 	})
+}
+
+func printUserInfo(t *testing.T, step string, ctx context.Context, user *v1alpha2.User, factory *kafka.ClientFactory) {
+	builder := users.NewClientBuilder(factory)
+
+	client, err := factory.GetAdminClient(ctx, user.Namespace, user.Spec.KafkaAPISpec)
+	require.NoError(t, err)
+
+	userClient, err := builder.ForUser(ctx, user)
+	require.NoError(t, err)
+
+	users, err := client.ListUsers(ctx)
+	require.NoError(t, err)
+
+	userACLs, err := userClient.ListACLs(ctx)
+	require.NoError(t, err)
+
+	fmt.Printf("===========%s===========\n", step)
+	fmt.Printf("Users: %v\n", users)
+	fmt.Printf("User (%q) ACLs: %+v\n", user.RedpandaName(), userACLs.Resources)
+	fmt.Printf("===========%s===========\n", strings.Repeat("=", len(step)))
 }
