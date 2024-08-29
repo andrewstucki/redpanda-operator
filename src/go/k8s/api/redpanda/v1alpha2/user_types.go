@@ -423,11 +423,11 @@ func (s ACLResourceSpec) GetName() string {
 const (
 	UserConditionTypeSynced = "Synced"
 
-	UserConditionReasonPending           = "Pending"
-	UserConditionReasonSynced            = "Synced"
-	UserConditionReasonClusterRefInvalid = "ClusterRefInvalid"
-	UserConditionReasonConnectionError   = "ConnectionError"
-	UserConditionReasonUnexpectedError   = "UnexpectedError"
+	UserConditionReasonPending             = "Pending"
+	UserConditionReasonSynced              = "Synced"
+	UserConditionReasonClusterRefInvalid   = "ClusterRefInvalid"
+	UserConditionReasonTerminalClientError = "TerminalClientError"
+	UserConditionReasonUnexpectedError     = "UnexpectedError"
 )
 
 func UserSyncedCondition(name string) metav1.Condition {

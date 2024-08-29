@@ -1,47 +1,10 @@
 package utils
 
 import (
-	"errors"
-
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 )
-
-type conditionErrorType struct {
-	err    error
-	reason string
-}
-
-type ConditionFn func(reason string, err error) metav1.Condition
-
-type ConditionErrorHandler struct {
-	types    []conditionErrorType
-	fallback string
-	handler  ConditionFn
-}
-
-func NewConditionErrorHandler(handler ConditionFn, fallback string) *ConditionErrorHandler {
-	return &ConditionErrorHandler{
-		handler:  handler,
-		fallback: fallback,
-	}
-}
-
-func (c *ConditionErrorHandler) Register(target error, reason string) *ConditionErrorHandler {
-	c.types = append(c.types, conditionErrorType{target, reason})
-	return c
-}
-
-func (c *ConditionErrorHandler) Handle(err error) (metav1.Condition, error) {
-	for _, t := range c.types {
-		if errors.Is(err, t.err) {
-			return c.handler(t.reason, err), nil
-		}
-	}
-
-	return c.handler(c.fallback, err), err
-}
 
 // StatusConditionConfigs takes a set of existing conditions and conditions of a
 // desired state and merges them idempotently to create a series of ConditionApplyConfiguration

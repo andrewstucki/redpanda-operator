@@ -27,20 +27,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	fieldOwner client.FieldOwner = "redpanda-operator"
-)
+const fieldOwner client.FieldOwner = "redpanda-operator"
 
-var UserErrorHandler = utils.NewConditionErrorHandler(
-	redpandav1alpha2.UserNotSyncedCondition,
-	redpandav1alpha2.UserConditionReasonUnexpectedError,
-).
-	Register(
-		internalclient.ErrInvalidClusterRef,
-		redpandav1alpha2.UserConditionReasonClusterRefInvalid,
-	)
-
-	// UserReconciler reconciles a Topic object
+// UserReconciler reconciles a Topic object
 type UserReconciler struct {
 	internalclient.ClientFactory
 }
@@ -103,6 +92,9 @@ func (r *UserReconciler) syncUser(ctx context.Context, user *redpandav1alpha2.Us
 		if errors.Is(err, internalclient.ErrInvalidClusterRef) {
 			return redpandav1alpha2.UserNotSyncedCondition(redpandav1alpha2.UserConditionReasonClusterRefInvalid, err), hasManagedUser, hasManagedACLs, nil
 		}
+		if internalclient.IsTerminalClientError(err) {
+			return redpandav1alpha2.UserNotSyncedCondition(redpandav1alpha2.UserConditionReasonTerminalClientError, err), hasManagedUser, hasManagedACLs, nil
+		}
 		return redpandav1alpha2.UserNotSyncedCondition(redpandav1alpha2.UserConditionReasonUnexpectedError, err), hasManagedUser, hasManagedACLs, err
 	}
 
@@ -151,6 +143,9 @@ func (r *UserReconciler) deleteUser(ctx context.Context, user *redpandav1alpha2.
 		// we're going to just skip the cleanup phase since we likely won't be
 		// able to clean ourselves up anyway.
 		if errors.Is(err, internalclient.ErrInvalidClusterRef) {
+			return nil
+		}
+		if internalclient.IsTerminalClientError(err) {
 			return nil
 		}
 		return err

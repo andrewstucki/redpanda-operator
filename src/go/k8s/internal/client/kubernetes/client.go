@@ -2,7 +2,6 @@ package kubernetes
 
 import (
 	"context"
-	"fmt"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -58,6 +57,5 @@ func (c *KubernetesClient) ApplyStatus(ctx context.Context, o any, owner client.
 		return err
 	}
 
-	fmt.Printf("%+v\n", obj.Object)
 	return c.Status().Patch(ctx, obj, client.Apply, client.ForceOwnership, owner)
 }
