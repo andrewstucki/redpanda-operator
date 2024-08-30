@@ -3,12 +3,16 @@ package redpanda
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/redpanda"
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl/scram"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -84,6 +88,17 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 	})
 	require.NoError(t, err)
 
+	err = c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "invalidsuperuser",
+			Namespace: metav1.NamespaceDefault,
+		},
+		Data: map[string][]byte{
+			"password": []byte("invalid"),
+		},
+	})
+	require.NoError(t, err)
+
 	reconciler := UserReconciler{
 		ClientFactory: factory,
 		timeout:       1 * time.Millisecond,
@@ -91,6 +106,7 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 
 	authenticationSpec := &redpandav1alpha2.UserAuthenticationSpec{
 		Password: redpandav1alpha2.Password{
+			Value: "password",
 			ValueFrom: &redpandav1alpha2.PasswordSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{
@@ -108,7 +124,7 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 				Type: redpandav1alpha2.ResourceTypeCluster,
 			},
 			Operations: []redpandav1alpha2.ACLOperation{
-				redpandav1alpha2.ACLOperationClusterAction,
+				redpandav1alpha2.ACLOperationDescribe,
 			},
 		}},
 	}
@@ -140,7 +156,34 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 		},
 	}
 
-	invalidAuthClusterSource := &redpandav1alpha2.ClusterSource{
+	invalidAuthClusterSourceBadPassword := &redpandav1alpha2.ClusterSource{
+		StaticConfiguration: &redpandav1alpha2.StaticConfigurationSource{
+			Kafka: &redpandav1alpha2.KafkaAPISpec{
+				Brokers: []string{broker},
+				SASL: &redpandav1alpha2.KafkaSASL{
+					Username: "superuser",
+					Password: redpandav1alpha2.SecretKeyRef{
+						Name: "invalidsuperuser",
+						Key:  "password",
+					},
+					Mechanism: redpandav1alpha2.SASLMechanismScramSHA256,
+				},
+			},
+			Admin: &redpandav1alpha2.AdminAPISpec{
+				URLs: []string{admin},
+				SASL: &redpandav1alpha2.AdminSASL{
+					Username: "superuser",
+					Password: redpandav1alpha2.SecretKeyRef{
+						Name: "invalidsuperuser",
+						Key:  "password",
+					},
+					Mechanism: redpandav1alpha2.SASLMechanismScramSHA256,
+				},
+			},
+		},
+	}
+
+	invalidAuthClusterSourceNoSASL := &redpandav1alpha2.ClusterSource{
 		StaticConfiguration: &redpandav1alpha2.StaticConfigurationSource{
 			Kafka: &redpandav1alpha2.KafkaAPISpec{
 				Brokers: []string{broker},
@@ -223,9 +266,15 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 			},
 			expectedCondition: invalidClusterRefCondition,
 		},
-		"error - client error": {
+		"error - client error no SASL": {
 			mutate: func(user *redpandav1alpha2.User) {
-				user.Spec.ClusterSource = invalidAuthClusterSource
+				user.Spec.ClusterSource = invalidAuthClusterSourceNoSASL
+			},
+			expectedCondition: clientErrorCondition,
+		},
+		"error - client error invalid credentials": {
+			mutate: func(user *redpandav1alpha2.User) {
+				user.Spec.ClusterSource = invalidAuthClusterSourceBadPassword
 			},
 			expectedCondition: clientErrorCondition,
 		},
@@ -275,6 +324,19 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 					acls, err := syncer.ListACLs(ctx, user.GetPrincipal())
 					require.NoError(t, err)
 					require.Len(t, acls, 1)
+				}
+
+				if user.ShouldManageACLs() && user.ShouldManageUser() {
+					kafkaClient, err := kgo.NewClient(kgo.SeedBrokers(broker), kgo.RetryTimeout(1*time.Millisecond), kgo.SASL(scram.Auth{
+						User: user.Name,
+						Pass: "password",
+					}.AsSha512Mechanism()))
+					require.NoError(t, err)
+					kafkaAdminClient := kadm.NewClient(kafkaClient)
+
+					metadata, err := kafkaAdminClient.BrokerMetadata(ctx)
+					require.NoError(t, err)
+					fmt.Println(metadata)
 				}
 
 				if !tt.onlyCheckDeletion {
