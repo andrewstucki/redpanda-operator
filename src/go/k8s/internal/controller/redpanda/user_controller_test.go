@@ -2,6 +2,8 @@ package redpanda
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -43,7 +45,12 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 		testEnv.Stop()
 	})
 
-	container, err := redpanda.Run(ctx, "docker.redpanda.com/redpandadata/redpanda:v23.2.8")
+	container, err := redpanda.Run(ctx, "docker.redpanda.com/redpandadata/redpanda:v23.2.8",
+		redpanda.WithEnableKafkaAuthorization(),
+		redpanda.WithEnableSASL(),
+		redpanda.WithSuperusers("superuser"),
+		redpanda.WithNewServiceAccount("superuser", "password"),
+	)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -63,82 +70,239 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 	require.NoError(t, err)
 	require.NotNil(t, c)
 
+	factory := internalclient.NewFactory(cfg, c)
+
+	// ensure we have a secret which we can pull a password from
+	err = c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "superuser",
+			Namespace: metav1.NamespaceDefault,
+		},
+		Data: map[string][]byte{
+			"password": []byte("password"),
+		},
+	})
+	require.NoError(t, err)
+
 	reconciler := UserReconciler{
-		ClientFactory: internalclient.NewFactory(cfg, c),
+		ClientFactory: factory,
+		timeout:       1 * time.Millisecond,
 	}
 
-	user := &redpandav1alpha2.User{
+	authenticationSpec := &redpandav1alpha2.UserAuthenticationSpec{
+		Password: redpandav1alpha2.Password{
+			ValueFrom: &redpandav1alpha2.PasswordSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: "password",
+					},
+				},
+			},
+		},
+	}
+
+	authorizationSpec := &redpandav1alpha2.UserAuthorizationSpec{
+		ACLs: []redpandav1alpha2.ACLRule{{
+			Type: redpandav1alpha2.ACLTypeAllow,
+			Resource: redpandav1alpha2.ACLResourceSpec{
+				Type: redpandav1alpha2.ResourceTypeCluster,
+			},
+			Operations: []redpandav1alpha2.ACLOperation{
+				redpandav1alpha2.ACLOperationClusterAction,
+			},
+		}},
+	}
+
+	validClusterSource := &redpandav1alpha2.ClusterSource{
+		StaticConfiguration: &redpandav1alpha2.StaticConfigurationSource{
+			Kafka: &redpandav1alpha2.KafkaAPISpec{
+				Brokers: []string{broker},
+				SASL: &redpandav1alpha2.KafkaSASL{
+					Username: "superuser",
+					Password: redpandav1alpha2.SecretKeyRef{
+						Name: "superuser",
+						Key:  "password",
+					},
+					Mechanism: redpandav1alpha2.SASLMechanismScramSHA256,
+				},
+			},
+			Admin: &redpandav1alpha2.AdminAPISpec{
+				URLs: []string{admin},
+				SASL: &redpandav1alpha2.AdminSASL{
+					Username: "superuser",
+					Password: redpandav1alpha2.SecretKeyRef{
+						Name: "superuser",
+						Key:  "password",
+					},
+					Mechanism: redpandav1alpha2.SASLMechanismScramSHA256,
+				},
+			},
+		},
+	}
+
+	invalidAuthClusterSource := &redpandav1alpha2.ClusterSource{
+		StaticConfiguration: &redpandav1alpha2.StaticConfigurationSource{
+			Kafka: &redpandav1alpha2.KafkaAPISpec{
+				Brokers: []string{broker},
+			},
+			Admin: &redpandav1alpha2.AdminAPISpec{
+				URLs: []string{admin},
+			},
+		},
+	}
+
+	invalidClusterRefSource := &redpandav1alpha2.ClusterSource{
+		ClusterRef: &redpandav1alpha2.ClusterRef{
+			Name: "nonexistent",
+		},
+	}
+
+	baseUser := &redpandav1alpha2.User{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "user",
 			Namespace: metav1.NamespaceDefault,
 		},
 		Spec: redpandav1alpha2.UserSpec{
-			ClusterSource: &redpandav1alpha2.ClusterSource{
-				StaticConfiguration: &redpandav1alpha2.StaticConfigurationSource{
-					Kafka: &redpandav1alpha2.KafkaAPISpec{
-						Brokers: []string{broker},
-					},
-					Admin: &redpandav1alpha2.AdminAPISpec{
-						URLs: []string{admin},
-					},
-				},
-			},
-			Authentication: &redpandav1alpha2.UserAuthenticationSpec{
-				Password: redpandav1alpha2.Password{
-					ValueFrom: &redpandav1alpha2.PasswordSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: "password",
-							},
-						},
-					},
-				},
-			},
-			Authorization: &redpandav1alpha2.UserAuthorizationSpec{
-				ACLs: []redpandav1alpha2.ACLRule{{
-					Type: redpandav1alpha2.ACLTypeAllow,
-					Resource: redpandav1alpha2.ACLResourceSpec{
-						Type: redpandav1alpha2.ResourceTypeCluster,
-					},
-					Operations: []redpandav1alpha2.ACLOperation{
-						redpandav1alpha2.ACLOperationClusterAction,
-					},
-				}},
-			},
+			ClusterSource:  validClusterSource,
+			Authentication: authenticationSpec,
+			Authorization:  authorizationSpec,
 		},
 	}
 
-	key := client.ObjectKeyFromObject(user)
-	req := ctrl.Request{NamespacedName: key}
+	syncedClusterRefCondition := redpandav1alpha2.UserSyncedCondition("test")
 
-	require.NoError(t, c.Create(ctx, user))
-	_, err = reconciler.Reconcile(ctx, req)
-	require.NoError(t, err)
+	invalidClusterRefCondition := redpandav1alpha2.UserNotSyncedCondition(
+		redpandav1alpha2.UserConditionReasonClusterRefInvalid, errors.New("test"),
+	)
 
-	require.NoError(t, c.Get(ctx, key, user))
-	require.Equal(t, []string{FinalizerKey}, user.Finalizers)
-	require.Len(t, user.Status.Conditions, 1)
-	then := user.Status.Conditions[0].LastTransitionTime
+	clientErrorCondition := redpandav1alpha2.UserNotSyncedCondition(
+		redpandav1alpha2.UserConditionReasonTerminalClientError, errors.New("test"),
+	)
 
-	// re-reconcile, check status
-	_, err = reconciler.Reconcile(ctx, req)
-	require.NoError(t, err)
+	for name, tt := range map[string]struct {
+		mutate            func(user *redpandav1alpha2.User)
+		expectedCondition metav1.Condition
+		onlyCheckDeletion bool
+	}{
+		"success - authorization and authentication": {
+			expectedCondition: syncedClusterRefCondition,
+		},
+		"success - authorization and authentication deletion cleanup": {
+			expectedCondition: syncedClusterRefCondition,
+			onlyCheckDeletion: true,
+		},
+		"error - invalid cluster ref": {
+			mutate: func(user *redpandav1alpha2.User) {
+				user.Spec.ClusterSource = invalidClusterRefSource
+			},
+			expectedCondition: invalidClusterRefCondition,
+		},
+		"error - client error": {
+			mutate: func(user *redpandav1alpha2.User) {
+				user.Spec.ClusterSource = invalidAuthClusterSource
+			},
+			expectedCondition: clientErrorCondition,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			user := baseUser.DeepCopy()
+			user.Name = "user" + strconv.Itoa(int(time.Now().UnixNano()))
 
-	require.NoError(t, c.Get(ctx, key, user))
-	require.Len(t, user.Status.Conditions, 1)
-	now := user.Status.Conditions[0].LastTransitionTime
+			if tt.mutate != nil {
+				tt.mutate(user)
+			}
 
-	require.Equal(t, then, now)
+			key := client.ObjectKeyFromObject(user)
+			req := ctrl.Request{NamespacedName: key}
 
-	require.True(t, user.Status.ManagedACLs)
-	require.True(t, user.Status.ManagedUser)
-	require.Equal(t, user.Status.Conditions[0].Type, redpandav1alpha2.UserConditionTypeSynced)
-	require.Equal(t, user.Status.Conditions[0].Status, metav1.ConditionTrue)
-	require.Equal(t, user.Status.Conditions[0].Reason, redpandav1alpha2.UserConditionReasonSynced)
+			require.NoError(t, c.Create(ctx, user))
+			_, err = reconciler.Reconcile(ctx, req)
+			require.NoError(t, err)
 
-	require.NoError(t, c.Delete(ctx, user))
-	_, err = reconciler.Reconcile(ctx, req)
-	require.NoError(t, err)
+			require.NoError(t, c.Get(ctx, key, user))
+			require.Equal(t, []string{FinalizerKey}, user.Finalizers)
+			require.Len(t, user.Status.Conditions, 1)
+			require.Equal(t, tt.expectedCondition.Type, user.Status.Conditions[0].Type)
+			require.Equal(t, tt.expectedCondition.Status, user.Status.Conditions[0].Status)
+			require.Equal(t, tt.expectedCondition.Reason, user.Status.Conditions[0].Reason)
 
-	require.True(t, apierrors.IsNotFound(c.Get(ctx, key, user)))
+			if tt.expectedCondition.Status == metav1.ConditionTrue {
+				syncer, err := factory.ACLs(ctx, user)
+				require.NoError(t, err)
+				userClient, err := factory.Users(ctx, user)
+				require.NoError(t, err)
+
+				// if we're supposed to have synced, then check to make sure we properly
+				// set the management flags
+				require.Equal(t, user.ShouldManageUser(), user.Status.ManagedUser)
+				require.Equal(t, user.ShouldManageACLs(), user.Status.ManagedACLs)
+
+				if user.ShouldManageUser() {
+					// make sure we actually have a user
+					hasUser, err := userClient.Has(ctx, user)
+					require.NoError(t, err)
+					require.True(t, hasUser)
+				}
+
+				if user.ShouldManageACLs() {
+					// make sure we actually have a user
+					acls, err := syncer.ListACLs(ctx, user.GetPrincipal())
+					require.NoError(t, err)
+					require.Len(t, acls, 1)
+				}
+
+				if !tt.onlyCheckDeletion {
+					// now clear out any managed User and re-check
+					user.Spec.Authentication = nil
+					require.NoError(t, c.Update(ctx, user))
+					_, err = reconciler.Reconcile(ctx, req)
+					require.NoError(t, err)
+					require.NoError(t, c.Get(ctx, key, user))
+					require.False(t, user.Status.ManagedUser)
+
+					// make sure we no longer have a user
+					hasUser, err := userClient.Has(ctx, user)
+					require.NoError(t, err)
+					require.False(t, hasUser)
+
+					// now clear out any managed ACLs and re-check
+					user.Spec.Authorization = nil
+					require.NoError(t, c.Update(ctx, user))
+					_, err = reconciler.Reconcile(ctx, req)
+					require.NoError(t, err)
+					require.NoError(t, c.Get(ctx, key, user))
+					require.False(t, user.Status.ManagedACLs)
+
+					// make sure we no longer have acls
+					acls, err := syncer.ListACLs(ctx, user.GetPrincipal())
+					require.NoError(t, err)
+					require.Len(t, acls, 0)
+				}
+
+				// clean up and make sure we properly delete everything
+				require.NoError(t, c.Delete(ctx, user))
+				_, err = reconciler.Reconcile(ctx, req)
+				require.NoError(t, err)
+				require.True(t, apierrors.IsNotFound(c.Get(ctx, key, user)))
+
+				// make sure we no longer have a user
+				hasUser, err := userClient.Has(ctx, user)
+				require.NoError(t, err)
+				require.False(t, hasUser)
+
+				// make sure we no longer have acls
+				acls, err := syncer.ListACLs(ctx, user.GetPrincipal())
+				require.NoError(t, err)
+				require.Len(t, acls, 0)
+
+				return
+			}
+
+			// clean up and make sure we properly delete everything
+			require.NoError(t, c.Delete(ctx, user))
+			_, err = reconciler.Reconcile(ctx, req)
+			require.NoError(t, err)
+
+			require.True(t, apierrors.IsNotFound(c.Get(ctx, key, user)))
+		})
+	}
 }

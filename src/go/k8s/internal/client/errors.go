@@ -5,6 +5,7 @@ import (
 
 	"github.com/redpanda-data/common-go/rpadmin"
 	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // For a list of errors from the Kafka API see:
@@ -35,5 +36,8 @@ func IsTerminalClientError(err error) bool {
 		}
 	}
 
-	return false
+	// alternatively, we may also have an error immediately for SASL auth
+	var readEOFError *kgo.ErrFirstReadEOF
+
+	return errors.As(err, &readEOFError)
 }

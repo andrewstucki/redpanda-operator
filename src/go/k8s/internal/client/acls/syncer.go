@@ -86,6 +86,15 @@ func (s *Syncer) sync(ctx context.Context, principal string, rules []redpandav1a
 	return len(creations), len(deletions), nil
 }
 
+func (s *Syncer) ListACLs(ctx context.Context, principal string) ([]redpandav1alpha2.ACLRule, error) {
+	describeResponse, err := s.listACLs(ctx, principal)
+	if err != nil {
+		return nil, err
+	}
+
+	return rulesetFromDescribeResponse(describeResponse).asV1Alpha2Rules(), nil
+}
+
 func (s *Syncer) listACLs(ctx context.Context, principal string) ([]kmsg.DescribeACLsResponseResource, error) {
 	ptrUsername := kmsg.StringPtr(principal)
 

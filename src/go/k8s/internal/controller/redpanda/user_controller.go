@@ -13,6 +13,7 @@ package redpanda
 import (
 	"context"
 	"errors"
+	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,6 +25,7 @@ import (
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/client/acls"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/client/users"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/utils"
+	"github.com/twmb/franz-go/pkg/kgo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -32,6 +34,8 @@ const fieldOwner client.FieldOwner = "redpanda-operator"
 // UserReconciler reconciles a Topic object
 type UserReconciler struct {
 	internalclient.ClientFactory
+
+	timeout time.Duration
 }
 
 //+kubebuilder:rbac:groups=cluster.redpanda.com,namespace=default,resources=users,verbs=get;list;watch;update;patch
@@ -172,12 +176,17 @@ func (r *UserReconciler) deleteUser(ctx context.Context, user *redpandav1alpha2.
 }
 
 func (r *UserReconciler) userAndACLClients(ctx context.Context, user *redpandav1alpha2.User) (*users.Client, *acls.Syncer, bool, error) {
-	usersClient, err := r.Users(ctx, user)
+	timeout := r.timeout
+	if timeout == 0 {
+		timeout = 45 * time.Second
+	}
+
+	usersClient, err := r.Users(ctx, user, kgo.RetryTimeout(timeout))
 	if err != nil {
 		return nil, nil, false, err
 	}
 
-	syncer, err := r.ACLs(ctx, user)
+	syncer, err := r.ACLs(ctx, user, kgo.RetryTimeout(timeout))
 	if err != nil {
 		return nil, nil, false, err
 	}
