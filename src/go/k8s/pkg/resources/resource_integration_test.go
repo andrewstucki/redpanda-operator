@@ -1,4 +1,4 @@
-// Copyright 2021 Redpanda Data, Inc.
+// Copyright 2024 Redpanda Data, Inc.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.md
@@ -44,7 +44,6 @@ func TestMain(m *testing.M) {
 	var err error
 
 	testEnv := &testutils.RedpandaTestEnv{}
-
 	cfg, err := testEnv.StartRedpandaTestEnv(false)
 	if err != nil {
 		log.Fatal(err)
