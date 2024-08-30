@@ -17,7 +17,9 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	redpandav1alpha2ac "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/applyconfiguration/redpanda/v1alpha2"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
@@ -26,6 +28,7 @@ import (
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/internal/client/users"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/utils"
 	"github.com/twmb/franz-go/pkg/kgo"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -200,8 +203,21 @@ func (r *UserReconciler) userAndACLClients(ctx context.Context, user *redpandav1
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *UserReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *UserReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if err := registerUserClusterIndex(ctx, mgr); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&redpandav1alpha2.User{}).
+		Owns(&corev1.Secret{}).
+		Watches(&redpandav1alpha2.Redpanda{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
+			requests, err := usersForCluster(ctx, r.KubernetesClient(), client.ObjectKeyFromObject(o))
+			if err != nil {
+				mgr.GetLogger().V(1).Info("skipping reconciliation due to fetching error", "error", err)
+				return nil
+			}
+			return requests
+		})).
 		Complete(r)
 }
