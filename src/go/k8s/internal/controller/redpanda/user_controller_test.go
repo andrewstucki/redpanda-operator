@@ -340,26 +340,30 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 				}
 
 				if !tt.onlyCheckDeletion {
-					// now clear out any managed User and re-check
-					user.Spec.Authentication = nil
-					require.NoError(t, c.Update(ctx, user))
-					_, err = reconciler.Reconcile(ctx, req)
-					require.NoError(t, err)
-					require.NoError(t, c.Get(ctx, key, user))
-					require.False(t, user.Status.ManagedUser)
+					if user.ShouldManageUser() {
+						// now clear out any managed User and re-check
+						user.Spec.Authentication = nil
+						require.NoError(t, c.Update(ctx, user))
+						_, err = reconciler.Reconcile(ctx, req)
+						require.NoError(t, err)
+						require.NoError(t, c.Get(ctx, key, user))
+						require.False(t, user.Status.ManagedUser)
+					}
 
 					// make sure we no longer have a user
 					hasUser, err := userClient.Has(ctx, user)
 					require.NoError(t, err)
 					require.False(t, hasUser)
 
-					// now clear out any managed ACLs and re-check
-					user.Spec.Authorization = nil
-					require.NoError(t, c.Update(ctx, user))
-					_, err = reconciler.Reconcile(ctx, req)
-					require.NoError(t, err)
-					require.NoError(t, c.Get(ctx, key, user))
-					require.False(t, user.Status.ManagedACLs)
+					if user.ShouldManageACLs() {
+						// now clear out any managed ACLs and re-check
+						user.Spec.Authorization = nil
+						require.NoError(t, c.Update(ctx, user))
+						_, err = reconciler.Reconcile(ctx, req)
+						require.NoError(t, err)
+						require.NoError(t, c.Get(ctx, key, user))
+						require.False(t, user.Status.ManagedACLs)
+					}
 
 					// make sure we no longer have acls
 					acls, err := syncer.ListACLs(ctx, user.GetPrincipal())
