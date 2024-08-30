@@ -190,6 +190,33 @@ func TestUserReconcile(t *testing.T) { // nolint:funlen // These tests have clea
 			expectedCondition: syncedClusterRefCondition,
 			onlyCheckDeletion: true,
 		},
+		"success - authentication": {
+			mutate: func(user *redpandav1alpha2.User) {
+				user.Spec.Authorization = nil
+			},
+			expectedCondition: syncedClusterRefCondition,
+		},
+		"success - authentication deletion cleanup": {
+			mutate: func(user *redpandav1alpha2.User) {
+				user.Spec.Authorization = nil
+			},
+			expectedCondition: syncedClusterRefCondition,
+			onlyCheckDeletion: true,
+		},
+		"success - authorization": {
+			mutate: func(user *redpandav1alpha2.User) {
+				user.Spec.Authentication = nil
+			},
+			expectedCondition: syncedClusterRefCondition,
+			onlyCheckDeletion: true,
+		},
+		"success - authorization deletion cleanup": {
+			mutate: func(user *redpandav1alpha2.User) {
+				user.Spec.Authentication = nil
+			},
+			expectedCondition: syncedClusterRefCondition,
+			onlyCheckDeletion: true,
+		},
 		"error - invalid cluster ref": {
 			mutate: func(user *redpandav1alpha2.User) {
 				user.Spec.ClusterSource = invalidClusterRefSource
