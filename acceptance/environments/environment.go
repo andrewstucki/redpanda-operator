@@ -4,10 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
+	"github.com/cucumber/godog/formatters"
+	acceptancetesting "github.com/redpanda-data/redpanda-operator/acceptance/testing"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -19,28 +25,105 @@ var (
 // Environment defines the Kubernetes provider specific hooks
 // that we use for running features.
 type Environment interface {
-	Initialize(m *testing.M) error
-	BeforeSuite(ctx *godog.TestSuiteContext) error
-	AfterSuite(ctx *godog.TestSuiteContext) error
-	BeforeScenario(ctx context.Context, sc *godog.Scenario) (context.Context, error)
-	AfterScenario(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error)
+	Initialize(m *testing.M, opts *acceptancetesting.TestingOptions) error
+	TestSuiteInitializer(ctx *godog.TestSuiteContext)
+	ScenarioInitializer(ctx *godog.ScenarioContext)
+	RegisterFormatter(opts godog.Options) godog.Options
 }
 
-func noopInitialize(_ *testing.M) error               { return nil }
-func noopBeforeSuite(_ *godog.TestSuiteContext) error { return nil }
-func noopAfterSuite(_ *godog.TestSuiteContext) error  { return nil }
-func noopBeforeScenario(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
-	return ctx, nil
+type baseEnvironment struct {
+	opts            *acceptancetesting.TestingOptions
+	tracker         *featureHookTracker
+	scenarioTracker *scenarioHookTracker
 }
-func noopAfterScenario(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
-	return ctx, err
+
+func (b *baseEnvironment) Initialize(m *testing.M, opts *acceptancetesting.TestingOptions) error {
+	b.opts = opts
+	b.tracker = newFeatureHookTracker()
+	b.scenarioTracker = newScenarioHookTracker()
+	return nil
+}
+
+func (b *baseEnvironment) TestSuiteInitializer(ctx *godog.TestSuiteContext) {}
+
+func (b *baseEnvironment) ScenarioInitializer(ctx *godog.ScenarioContext) {
+	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+		b.tracker.onFirstRun(sc.Uri, func(namespace string) {
+			b.onFeatureStart(ctx, namespace)
+		})
+
+		return b.scenarioTracker.add(ctx, sc.Id, b.tracker.namespace(sc.Uri), b.opts), nil
+	})
+
+	ctx.After(func(ctx context.Context, sc *godog.Scenario, _ error) (context.Context, error) {
+		b.scenarioTracker.cleanup(ctx, sc.Id)
+
+		b.tracker.onFinished(sc.Uri, func(namespace string) {
+			b.onFeatureEnd(ctx, namespace)
+		})
+
+		return ctx, nil
+	})
+}
+
+func (b *baseEnvironment) onFeatureStart(ctx context.Context, namespace string) {
+	// generate a new namespace per feature to run features in isolation
+	// and potentially clean it up after the feature finishes running
+
+	opts := b.opts.Clone()
+	opts.KubectlOptions = opts.KubectlOptions.WithNamespace(namespace)
+
+	client, err := acceptancetesting.Client(opts.KubectlOptions)
+	require.NoError(godog.T(ctx), err)
+
+	namespaceObject := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: opts.KubectlOptions.Namespace,
+		},
+	}
+
+	require.NoError(godog.T(ctx), client.Create(ctx, namespaceObject))
+}
+
+func (b *baseEnvironment) onFeatureEnd(ctx context.Context, namespace string) {
+	opts := b.opts.Clone()
+	opts.KubectlOptions = opts.KubectlOptions.WithNamespace(namespace)
+
+	cancel := func() {}
+	if b.opts.CleanupTimeout != 0 {
+		ctx, cancel = context.WithTimeout(ctx, b.opts.CleanupTimeout)
+	}
+	defer cancel()
+
+	// we can safely call delete on a namespace that's not empty
+	// because a finalizer will keep it from getting GC'd
+	// so no need to check retention here
+	namespaceObject := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+		},
+	}
+	client, err := acceptancetesting.Client(opts.KubectlOptions)
+	require.NoError(godog.T(ctx), err)
+
+	if err := client.Delete(ctx, namespaceObject); err != nil {
+		godog.T(ctx).Logf("WARNING: error running cleanup hook: %v", err)
+	}
+}
+
+func (b *baseEnvironment) RegisterFormatter(opts godog.Options) godog.Options {
+	formatters.Format("custom", "", func(suite string, out io.Writer) formatters.Formatter {
+		return b.tracker
+	})
+	opts.Format += ",custom"
+	return opts
 }
 
 var supportedEnvironments = map[string]Environment{
-	"@eks":  &eksEnvironment{},
-	"@gke":  &gkeEnvironment{},
-	"@aks":  &aksEnvironment{},
-	"@kind": &kindEnvironment{},
+	"@eks":  &eksEnvironment{&baseEnvironment{}},
+	"@gke":  &gkeEnvironment{&baseEnvironment{}},
+	"@aks":  &aksEnvironment{&baseEnvironment{}},
+	"@kind": &kindEnvironment{&baseEnvironment{}},
 }
 
 // GetEnvironmentForTags returns the environment used to run the
