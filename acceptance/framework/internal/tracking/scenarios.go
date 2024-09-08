@@ -43,12 +43,14 @@ func (s *scenarioHookTracker) start(ctx context.Context, sc *godog.Scenario, fea
 	cleaner := lifecycle.NewCleaner(godog.T(ctx), opts)
 	ctx = internaltesting.TestingContext(ctx, opts)
 
+	var err error
 	for _, fn := range s.registry.Handlers(tags.flatten()) {
-		cleanup, err := fn(ctx)
-		if err != nil {
-			return ctx, err
+		var cleanup func(context.Context) error
+		cleanup, err = fn.Handler(ctx, fn.Suffix)
+
+		if cleanup != nil {
+			cleaner.Cleanup(cleanup)
 		}
-		cleaner.Cleanup(cleanup)
 	}
 
 	s.scenarios[sc.Id] = &scenario{
@@ -59,7 +61,7 @@ func (s *scenarioHookTracker) start(ctx context.Context, sc *godog.Scenario, fea
 		t: internaltesting.T(ctx),
 	}
 
-	return ctx, nil
+	return ctx, err
 }
 
 func (s *scenarioHookTracker) finish(ctx context.Context, scenario *godog.Scenario) {
@@ -67,6 +69,10 @@ func (s *scenarioHookTracker) finish(ctx context.Context, scenario *godog.Scenar
 	defer s.mutex.Unlock()
 
 	scene := s.scenarios[scenario.Id]
+	if scene == nil {
+		return
+	}
+
 	failure := scene.t.IsFailure()
 
 	// clean up everything called in the scenario steps first

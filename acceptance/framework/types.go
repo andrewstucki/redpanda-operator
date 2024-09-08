@@ -12,7 +12,7 @@ import (
 
 // Redefine the interfaces from the internal package
 
-type TagHandler func(context.Context) (func(context.Context) error, error)
+type TagHandler func(ctx context.Context, suffix string) (func(context.Context) error, error)
 
 type TestingT interface {
 	godog.TestingT
@@ -20,8 +20,14 @@ type TestingT interface {
 
 	Cleanup(fn func(context.Context) error)
 	ResourceKey(name string) types.NamespacedName
+
 	ApplyFixture(ctx context.Context, fileOrDirectory string)
 	ApplyNamespacedFixture(ctx context.Context, fileOrDirectory, namespace string)
+
+	ApplyManifestNoCleanup(ctx context.Context, fileOrDirectory string)
+	DeleteManifest(ctx context.Context, fileOrDirectory string)
+
+	Namespace() string
 	CreateNamespace(ctx context.Context) string
 	DeleteNamespace(ctx context.Context, namespace string)
 }

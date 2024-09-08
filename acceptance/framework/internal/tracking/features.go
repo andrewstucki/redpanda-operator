@@ -65,18 +65,23 @@ func (f *FeatureHookTracker) Scenario(ctx context.Context, scenario *godog.Scena
 		features.opts = opts
 		features.Cleaner = lifecycle.NewCleaner(godog.T(ctx), opts)
 
+		var err error
 		for _, fn := range f.registry.Handlers(features.tags.flatten()) {
+			var cleanup func(context.Context) error
 			// we make a throwaway context here so that we can leverage the
 			// testing wrapper in our tag helpers -- any changes to the underlying
 			// options will be propagated down the feature, scenario, step chain
-			cleanup, err := fn(internaltesting.TestingContext(ctx, opts))
-			if err != nil {
-				return ctx, err
+			cleanup, err = fn.Handler(internaltesting.TestingContext(ctx, opts), fn.Suffix)
+			if cleanup != nil {
+				features.Cleanup(cleanup)
 			}
-			features.Cleanup(cleanup)
 		}
 
 		f.features[scenario.Uri] = features
+
+		if err != nil {
+			return ctx, err
+		}
 	}
 
 	return f.scenarios.start(ctx, scenario, features, func() {

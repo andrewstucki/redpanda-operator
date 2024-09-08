@@ -53,7 +53,7 @@ func SuiteBuilderFromFlags() *SuiteBuilder {
 	setShortTimeout(&options.CleanupTimeout, 2*time.Minute)
 
 	registry := internaltesting.NewTagRegistry()
-	registry.Register("isolated", tags.IsolatedTag)
+	registry.Register("isolated", -1000, tags.IsolatedTag)
 
 	return &SuiteBuilder{
 		testingOpts: options,
@@ -68,8 +68,8 @@ func (b *SuiteBuilder) WithDefaultProvider(name string) *SuiteBuilder {
 	return b
 }
 
-func (b *SuiteBuilder) RegisterTag(tag string, handler TagHandler) *SuiteBuilder {
-	b.registry.Register(tag, internaltesting.TagHandler(handler))
+func (b *SuiteBuilder) RegisterTag(tag string, priority int, handler TagHandler) *SuiteBuilder {
+	b.registry.Register(tag, priority, internaltesting.TagHandler(handler))
 	return b
 }
 
@@ -102,7 +102,7 @@ func (b *SuiteBuilder) Build() (*Suite, error) {
 	}
 	ctx := provider.GetBaseContext()
 	opts.DefaultContext = ctx
-	opts.Tags = fmt.Sprintf("~@skip-%s", providerName)
+	opts.Tags = fmt.Sprintf("~@skip:%s", providerName)
 
 	return &Suite{
 		suite: &godog.TestSuite{

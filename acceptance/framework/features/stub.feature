@@ -15,7 +15,7 @@ Feature: stub
     When a user updates the stub key "foo" to "bar"
     Then the stub should have "foo" equal "bar"
 
-  @skip-stub
+  @skip:stub
   Scenario: skipped stub
     And there is a stub
     When a user updates the stub key "a" to "b"

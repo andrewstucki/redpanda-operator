@@ -6,7 +6,7 @@ import (
 	internaltesting "github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/testing"
 )
 
-func IsolatedTag(ctx context.Context) (func(context.Context) error, error) {
+func IsolatedTag(ctx context.Context, suffix string) (func(context.Context) error, error) {
 	t := internaltesting.T(ctx)
 
 	oldNamespace := t.Namespace()

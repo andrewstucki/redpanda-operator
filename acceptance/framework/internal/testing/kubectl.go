@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -87,7 +86,7 @@ func kubectlDelete(ctx context.Context, fileOrDirectory string, options ...*Kube
 		mergedOptions = mergedOptions.merge(option)
 	}
 
-	return kubectl(ctx, mergedOptions, "delete", "-f", filepath.Join("fixtures", fileOrDirectory))
+	return kubectl(ctx, mergedOptions, "delete", "-f", fileOrDirectory)
 }
 
 func kubectlApply(ctx context.Context, fileOrDirectory string, options ...*KubectlOptions) (string, error) {
@@ -96,7 +95,7 @@ func kubectlApply(ctx context.Context, fileOrDirectory string, options ...*Kubec
 		mergedOptions = mergedOptions.merge(option)
 	}
 
-	return kubectl(ctx, mergedOptions, "apply", "-f", filepath.Join("fixtures", fileOrDirectory))
+	return kubectl(ctx, mergedOptions, "apply", "-f", fileOrDirectory)
 }
 
 func kubectl(ctx context.Context, options *KubectlOptions, args ...string) (string, error) {
@@ -116,5 +115,9 @@ func kubectl(ctx context.Context, options *KubectlOptions, args ...string) (stri
 	}()
 
 	output, err := command.CombinedOutput()
-	return string(output), err
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", string(output), err)
+	}
+
+	return string(output), nil
 }

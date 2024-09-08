@@ -2,6 +2,7 @@ package testing
 
 import (
 	"context"
+	"path/filepath"
 	"time"
 
 	"github.com/cucumber/godog"
@@ -150,8 +151,36 @@ func (t *TestingT) ApplyFixture(ctx context.Context, fileOrDirectory string) {
 	t.ApplyNamespacedFixture(ctx, fileOrDirectory, t.options.KubectlOptions.Namespace)
 }
 
+// ApplyManifestNoCleanup applies a set of kubernetes manifests via kubectl.
+func (t *TestingT) ApplyManifestNoCleanup(ctx context.Context, fileOrDirectory string) {
+	_, err := kubectlApply(ctx, fileOrDirectory, t.options.KubectlOptions)
+	require.NoError(t, err)
+}
+
+// ApplyManifest deletes a set of kubernetes manifests via kubectl.
+func (t *TestingT) DeleteManifest(ctx context.Context, fileOrDirectory string) {
+	_, err := kubectlDelete(ctx, fileOrDirectory, t.options.KubectlOptions)
+	require.NoError(t, err)
+}
+
 // ApplyNamespacedFixture applies a set of kubernetes manifests via kubectl.
 func (t *TestingT) ApplyNamespacedFixture(ctx context.Context, fileOrDirectory, namespace string) {
+	opts := t.options.KubectlOptions.Clone()
+	opts.Namespace = namespace
+
+	fileOrDirectory = filepath.Join("fixtures", fileOrDirectory)
+
+	_, err := kubectlApply(ctx, fileOrDirectory, opts)
+	require.NoError(t, err)
+
+	t.cleanup(true, func(ctx context.Context) error {
+		_, err := kubectlDelete(ctx, fileOrDirectory, opts)
+		return err
+	})
+}
+
+// ApplyNamespacedManifest applies a set of kubernetes manifests via kubectl.
+func (t *TestingT) ApplyNamespacedManifest(ctx context.Context, fileOrDirectory, namespace string) {
 	opts := t.options.KubectlOptions.Clone()
 	opts.Namespace = namespace
 

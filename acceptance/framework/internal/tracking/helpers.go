@@ -92,7 +92,7 @@ func FilterChildren(provider string, children []*messages.FeatureChild) []*messa
 	for _, child := range children {
 		skip := false
 		for _, tag := range child.Scenario.Tags {
-			if tag.Name == "@skip-"+provider {
+			if tag.Name == "@skip:"+provider {
 				skip = true
 				break
 			}
