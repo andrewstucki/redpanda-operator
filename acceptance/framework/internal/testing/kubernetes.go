@@ -14,9 +14,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Client returns a new controllerruntime client.
-func Client(options ...*KubectlOptions) (client.Client, error) {
-	restConfig, err := RestConfig(options...)
+// kubernetesClient returns a new controllerruntime client.
+func kubernetesClient(options ...*KubectlOptions) (client.Client, error) {
+	restConfig, err := restConfig(options...)
 	if err != nil {
 		return nil, err
 	}
@@ -35,9 +35,9 @@ func Client(options ...*KubectlOptions) (client.Client, error) {
 	return client.New(restConfig, client.Options{Scheme: scheme})
 }
 
-// CreateNamespace creates the given namespace.
-func CreateNamespace(ctx context.Context, namespace string, options ...*KubectlOptions) error {
-	client, err := Client(options...)
+// createNamespace creates the given namespace.
+func createNamespace(ctx context.Context, namespace string, options ...*KubectlOptions) error {
+	client, err := kubernetesClient(options...)
 	if err != nil {
 		return err
 	}
@@ -49,9 +49,9 @@ func CreateNamespace(ctx context.Context, namespace string, options ...*KubectlO
 	})
 }
 
-// DeleteNamespace deletes the given namespace.
-func DeleteNamespace(ctx context.Context, namespace string, options ...*KubectlOptions) error {
-	client, err := Client(options...)
+// deleteNamespace deletes the given namespace.
+func deleteNamespace(ctx context.Context, namespace string, options ...*KubectlOptions) error {
+	client, err := kubernetesClient(options...)
 	if err != nil {
 		return err
 	}
@@ -63,8 +63,8 @@ func DeleteNamespace(ctx context.Context, namespace string, options ...*KubectlO
 	})
 }
 
-// RestConfig returns the kubernetes configuration given the KubectlOptions.
-func RestConfig(options ...*KubectlOptions) (*rest.Config, error) {
+// restConfig returns the kubernetes configuration given the KubectlOptions.
+func restConfig(options ...*KubectlOptions) (*rest.Config, error) {
 	mergedOptions := defaultOptions()
 	for _, option := range options {
 		mergedOptions = mergedOptions.merge(option)

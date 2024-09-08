@@ -1,4 +1,4 @@
-package steps
+package framework
 
 import "github.com/cucumber/godog"
 
@@ -7,14 +7,14 @@ type stepDefinition struct {
 	step       interface{}
 }
 
-var steps []stepDefinition
+var registeredSteps []stepDefinition
 
 func RegisterStep(expression string, step interface{}) {
-	steps = append(steps, stepDefinition{expression, step})
+	registeredSteps = append(registeredSteps, stepDefinition{expression, step})
 }
 
-func Scenarios(ctx *godog.ScenarioContext) {
-	for _, step := range steps {
+func getSteps(ctx *godog.ScenarioContext) {
+	for _, step := range registeredSteps {
 		ctx.Step(step.expression, step.step)
 	}
 }

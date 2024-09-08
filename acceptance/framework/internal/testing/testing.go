@@ -5,9 +5,10 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	operatorclient "github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/client"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type contextKey struct{}
@@ -29,6 +30,8 @@ type TestingOptions struct {
 	Timeout time.Duration
 	// CleanupTimeout is the timeout for cleaning up resources
 	CleanupTimeout time.Duration
+	// Provider sets the provider for the test suite.
+	Provider string
 }
 
 func (o *TestingOptions) Clone() *TestingOptions {
@@ -37,6 +40,7 @@ func (o *TestingOptions) Clone() *TestingOptions {
 		Timeout:         o.Timeout,
 		CleanupTimeout:  o.CleanupTimeout,
 		KubectlOptions:  o.KubectlOptions.Clone(),
+		Provider:        o.Provider,
 	}
 }
 
@@ -48,27 +52,29 @@ func (o *TestingOptions) Clone() *TestingOptions {
 // resources.
 type TestingT struct {
 	godog.TestingT
-	*operatorclient.Factory
-	scenarioNamespace string
-	options           *TestingOptions
-	cleanupFns        []func(ctx context.Context)
-	failure           bool
+	client.Client
+
+	restConfig *rest.Config
+	options    *TestingOptions
+	cleanupFns []func(ctx context.Context)
+	failure    bool
 }
 
 // TestingContext injects a TestingT into the given context.
 func TestingContext(ctx context.Context, options *TestingOptions) context.Context {
 	t := godog.T(ctx)
 
-	client, err := Client(options.KubectlOptions)
+	client, err := kubernetesClient(options.KubectlOptions)
 	require.NoError(t, err)
 
-	restConfig, err := RestConfig(options.KubectlOptions)
+	restConfig, err := restConfig(options.KubectlOptions)
 	require.NoError(t, err)
 
 	return context.WithValue(ctx, testingContextKey, &TestingT{
-		TestingT: t,
-		Factory:  operatorclient.NewFactory(restConfig, client),
-		options:  options,
+		TestingT:   t,
+		Client:     client,
+		restConfig: restConfig,
+		options:    options,
 	})
 }
 
@@ -95,6 +101,11 @@ func (t *TestingT) DoCleanup(ctx context.Context) {
 	for _, fn := range t.cleanupFns {
 		fn(ctx)
 	}
+}
+
+// IsFailure returns whether this test failed.
+func (t *TestingT) IsFailure() bool {
+	return t.failure
 }
 
 // Error fails the current test and logs the provided arguments. Equivalent to calling Log then
@@ -136,14 +147,19 @@ func (t *TestingT) Fatalf(format string, args ...interface{}) {
 
 // ApplyFixture applies a set of kubernetes manifests via kubectl.
 func (t *TestingT) ApplyFixture(ctx context.Context, fileOrDirectory string) {
-	opts := t.options.KubectlOptions.Clone()
-	opts.Namespace = t.Namespace()
+	t.ApplyNamespacedFixture(ctx, fileOrDirectory, t.options.KubectlOptions.Namespace)
+}
 
-	_, err := KubectlApply(ctx, fileOrDirectory, opts)
+// ApplyNamespacedFixture applies a set of kubernetes manifests via kubectl.
+func (t *TestingT) ApplyNamespacedFixture(ctx context.Context, fileOrDirectory, namespace string) {
+	opts := t.options.KubectlOptions.Clone()
+	opts.Namespace = namespace
+
+	_, err := kubectlApply(ctx, fileOrDirectory, opts)
 	require.NoError(t, err)
 
 	t.cleanup(true, func(ctx context.Context) error {
-		_, err := KubectlDelete(ctx, fileOrDirectory, opts)
+		_, err := kubectlDelete(ctx, fileOrDirectory, opts)
 		return err
 	})
 }
@@ -159,25 +175,26 @@ func (t *TestingT) ResourceKey(name string) types.NamespacedName {
 
 // Namespace returns the namespace that this testing scenario is running in.
 func (t *TestingT) Namespace() string {
-	if t.scenarioNamespace != "" {
-		return t.scenarioNamespace
-	}
-
 	return t.options.KubectlOptions.Namespace
 }
 
-// CreateScenarioNamespace creates a temporary namespace for the tests in this scenario to run.
-func (t *TestingT) CreateScenarioNamespace(ctx context.Context) {
-	if t.scenarioNamespace != "" {
-		return
-	}
-	t.scenarioNamespace = AddSuffix("scenario")
-	err := CreateNamespace(ctx, t.scenarioNamespace, t.options.KubectlOptions)
-	require.NoError(t, err)
+// SetNamespace sets the current namespace we're in.
+func (t *TestingT) SetNamespace(namespace string) {
+	t.options.KubectlOptions.Namespace = namespace
+}
 
-	t.cleanup(true, func(ctx context.Context) error {
-		return DeleteNamespace(ctx, t.scenarioNamespace, t.options.KubectlOptions)
-	})
+// CreateNamespace creates a temporary namespace for the tests in this scenario to run.
+func (t *TestingT) CreateNamespace(ctx context.Context) string {
+	namespace := AddSuffix("scenario")
+	err := createNamespace(ctx, namespace, t.options.KubectlOptions)
+	require.NoError(t, err)
+	return namespace
+}
+
+// DeleteNamespace deletes a temporary namespace for the tests in this scenario to run.
+func (t *TestingT) DeleteNamespace(ctx context.Context, namespace string) {
+	err := deleteNamespace(ctx, namespace, t.options.KubectlOptions)
+	require.NoError(t, err)
 }
 
 func (t *TestingT) cleanup(checkRetain bool, fn func(context.Context) error) {

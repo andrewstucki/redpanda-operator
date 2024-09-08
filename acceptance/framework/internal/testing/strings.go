@@ -1,6 +1,14 @@
 package testing
 
-import "golang.org/x/exp/rand"
+import (
+	"time"
+
+	"golang.org/x/exp/rand"
+)
+
+func init() {
+	rand.Seed(uint64(time.Now().UnixNano()))
+}
 
 var letters = "0123456789abcdefghijklmnopqrstuvwxyz"
 

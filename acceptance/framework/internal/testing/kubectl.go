@@ -21,6 +21,7 @@ type KubectlOptions struct {
 func NewKubectlOptions(config string) *KubectlOptions {
 	return &KubectlOptions{
 		ConfigPath: config,
+		Namespace:  metav1.NamespaceDefault,
 		Env:        make(map[string]string),
 	}
 }
@@ -37,16 +38,6 @@ func (o *KubectlOptions) Clone() *KubectlOptions {
 	}
 
 	return opts
-}
-
-func (o *KubectlOptions) WithNamespace(namespace string) *KubectlOptions {
-	o.Namespace = namespace
-	return o
-}
-
-func (o *KubectlOptions) WithEnv(key, value string) *KubectlOptions {
-	o.Env[key] = value
-	return o
 }
 
 func (o *KubectlOptions) args(args []string) []string {
@@ -90,7 +81,7 @@ func defaultOptions() *KubectlOptions {
 	}
 }
 
-func KubectlDelete(ctx context.Context, fileOrDirectory string, options ...*KubectlOptions) (string, error) {
+func kubectlDelete(ctx context.Context, fileOrDirectory string, options ...*KubectlOptions) (string, error) {
 	mergedOptions := defaultOptions()
 	for _, option := range options {
 		mergedOptions = mergedOptions.merge(option)
@@ -99,7 +90,7 @@ func KubectlDelete(ctx context.Context, fileOrDirectory string, options ...*Kube
 	return kubectl(ctx, mergedOptions, "delete", "-f", filepath.Join("fixtures", fileOrDirectory))
 }
 
-func KubectlApply(ctx context.Context, fileOrDirectory string, options ...*KubectlOptions) (string, error) {
+func kubectlApply(ctx context.Context, fileOrDirectory string, options ...*KubectlOptions) (string, error) {
 	mergedOptions := defaultOptions()
 	for _, option := range options {
 		mergedOptions = mergedOptions.merge(option)
@@ -119,7 +110,7 @@ func kubectl(ctx context.Context, options *KubectlOptions, args ...string) (stri
 		// signal a cancel on the command to make
 		// it responsive to upstream context cancelation
 		<-ctx.Done()
-		if !command.ProcessState.Exited() {
+		if command != nil && command.ProcessState != nil && !command.ProcessState.Exited() {
 			command.Cancel()
 		}
 	}()
