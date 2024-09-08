@@ -87,7 +87,7 @@ func tagsForFeature(tags []*messages.Tag) *tagset {
 	return featureTags
 }
 
-func filterChildren(provider string, children []*messages.FeatureChild) []*messages.FeatureChild {
+func FilterChildren(provider string, children []*messages.FeatureChild) []*messages.FeatureChild {
 	filtered := []*messages.FeatureChild{}
 	for _, child := range children {
 		skip := false

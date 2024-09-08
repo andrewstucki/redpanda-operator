@@ -123,7 +123,7 @@ func (f *FeatureHookTracker) Feature(doc *messages.GherkinDocument, uri string, 
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
-	children := filterChildren(f.opts.Provider, doc.Feature.Children)
+	children := FilterChildren(f.opts.Provider, doc.Feature.Children)
 
 	f.features[uri] = &feature{
 		scenariosToRun: len(children),
