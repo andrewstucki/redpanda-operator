@@ -43,6 +43,14 @@ Because of the tagging extensions above that allow you to skip tests on a per-pr
 |--------------------|-----|-----|-----|-----|
 | Some scenario      | ✅  | ✅  | ✅  | ✅  |
 
+### Normalized flag utilization
+
+Check `suite.go` for all flags, but some highlights:
+
+- `-retain`: Skip cleanup phase for tests which failed
+- `-timeout`: Set the timeout for the entire test suite to run
+- `-provider`: Specify a provider with its own unique hooks and scenarios to run
+
 ## Usage
 
 Included is a "stub" test suite example, but here's a slightly more complex suite builder setup:
