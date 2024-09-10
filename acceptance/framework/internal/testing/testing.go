@@ -7,6 +7,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -176,9 +177,31 @@ func (t *TestingT) IsolateNamespace(ctx context.Context) string {
 	namespace := AddSuffix("testing")
 
 	require.NoError(t, createNamespace(ctx, namespace, t.options.KubectlOptions))
+
+	oldNamespace := t.options.KubectlOptions.Namespace
+	t.options.KubectlOptions.Namespace = namespace
+
 	t.Cleanup(func(ctx context.Context) {
 		require.NoError(t, deleteNamespace(ctx, namespace, t.options.KubectlOptions))
+		t.options.KubectlOptions.Namespace = oldNamespace
 	})
 
 	return namespace
+}
+
+// RequireCondition expects some condition to be found in an array of object conditions.
+func (t *TestingT) RequireCondition(expected metav1.Condition, conditions []metav1.Condition) {
+	if !t.HasCondition(expected, conditions) {
+		t.Fatal("condition: %+v not found in conditions: %+v", expected, conditions)
+	}
+}
+
+// HasCondition returns if a condition is found in an array of object conditions.
+func (t *TestingT) HasCondition(expected metav1.Condition, conditions []metav1.Condition) bool {
+	for _, condition := range conditions {
+		if expected.Type == condition.Type && expected.Status == condition.Status && expected.Reason == condition.Reason {
+			return true
+		}
+	}
+	return false
 }

@@ -57,8 +57,11 @@ func (c *Cleaner) DoCleanup(ctx context.Context, failed bool) {
 	}
 	defer cancel()
 
-	for _, fn := range c.cleanupFns {
-		fn(ctx, failed)
+	// run cleanup in backwards order so that we don't
+	// remove dependencies prior to their dependents
+	// being cleaned up
+	for i := len(c.cleanupFns) - 1; i >= 0; i-- {
+		c.cleanupFns[i](ctx, failed)
 	}
 
 	c.cleanupFns = nil

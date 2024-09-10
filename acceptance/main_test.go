@@ -6,10 +6,12 @@ import (
 	"os"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/redpanda-data/helm-charts/pkg/helm"
 	"github.com/redpanda-data/redpanda-operator/acceptance/framework"
 	_ "github.com/redpanda-data/redpanda-operator/acceptance/steps"
 	"github.com/redpanda-data/redpanda-operator/acceptance/tags"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var (
@@ -19,6 +21,8 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	log.SetLogger(logr.Discard())
+
 	var err error
 
 	suite, err = framework.SuiteBuilderFromFlags().

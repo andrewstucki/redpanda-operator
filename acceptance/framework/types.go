@@ -8,6 +8,7 @@ import (
 
 	"github.com/redpanda-data/helm-charts/pkg/helm"
 	internaltesting "github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/testing"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -30,6 +31,9 @@ type TestingT interface {
 	InstallHelmChart(ctx context.Context, url, repo, chart string, options helm.InstallOptions)
 
 	Namespace() string
+
+	RequireCondition(expected metav1.Condition, conditions []metav1.Condition)
+	HasCondition(expected metav1.Condition, conditions []metav1.Condition) bool
 }
 
 type Provider interface {
