@@ -19,10 +19,12 @@ func (t *TestingT) InstallHelmChart(ctx context.Context, url, repo, chart string
 
 	options.CreateNamespace = true
 
+	t.Logf("installing chart %q", repo+"/"+chart)
 	_, err = helmClient.Install(ctx, repo+"/"+chart, options)
 	require.NoError(t, err)
 
 	t.Cleanup(func(ctx context.Context) {
+		t.Logf("uninstalling chart %q", repo+"/"+chart)
 		require.NoError(t, helmClient.Uninstall(ctx, helm.Release{
 			Name:      options.Name,
 			Namespace: options.Namespace,

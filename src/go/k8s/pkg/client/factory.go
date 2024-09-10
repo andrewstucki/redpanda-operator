@@ -35,6 +35,13 @@ var (
 	ErrUnsupportedSASLMechanism    = errors.New("unsupported SASL mechanism")
 )
 
+// UserAuth allows you to override the auth credentials used in establishing a client connection
+type UserAuth struct {
+	Username  string
+	Password  string
+	Mechanism string
+}
+
 // ClientFactory is responsible for creating both high-level and low-level clients used in our
 // controllers.
 //
@@ -67,7 +74,8 @@ type Factory struct {
 	client.Client
 	config *rest.Config
 
-	dialer redpanda.DialContextFunc
+	dialer   redpanda.DialContextFunc
+	userAuth *UserAuth
 }
 
 var _ ClientFactory = (*Factory)(nil)
@@ -81,6 +89,11 @@ func NewFactory(config *rest.Config, kubeclient client.Client) *Factory {
 
 func (c *Factory) WithDialer(dialer redpanda.DialContextFunc) *Factory {
 	c.dialer = dialer
+	return c
+}
+
+func (c *Factory) WithUserAuth(userAuth *UserAuth) *Factory {
+	c.userAuth = userAuth
 	return c
 }
 

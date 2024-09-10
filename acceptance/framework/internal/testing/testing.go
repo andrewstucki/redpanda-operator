@@ -143,10 +143,12 @@ func (t *TestingT) ApplyManifest(ctx context.Context, fileOrDirectory string) {
 	opts := t.options.KubectlOptions.Clone()
 	opts.Namespace = namespace
 
+	t.Logf("Applying manifest %q", fileOrDirectory)
 	_, err := KubectlApply(ctx, fileOrDirectory, opts)
 	require.NoError(t, err)
 
 	t.Cleanup(func(ctx context.Context) {
+		t.Logf("Deleting manifest %q", fileOrDirectory)
 		_, err := KubectlDelete(ctx, fileOrDirectory, opts)
 		require.NoError(t, err)
 	})
@@ -184,10 +186,12 @@ func (t *TestingT) IsolateNamespace(ctx context.Context) string {
 
 	oldNamespace := t.options.KubectlOptions.Namespace
 	t.options.KubectlOptions.Namespace = namespace
+	t.Logf("Switiching namespace %q --> %q", oldNamespace, namespace)
 
 	t.Cleanup(func(ctx context.Context) {
 		require.NoError(t, deleteNamespace(ctx, namespace, t.options.KubectlOptions))
 		t.options.KubectlOptions.Namespace = oldNamespace
+		t.Logf("Switiching namespace %q --> %q", namespace, oldNamespace)
 	})
 
 	return namespace

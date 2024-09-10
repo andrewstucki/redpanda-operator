@@ -29,7 +29,7 @@ type clusterClients struct {
 	ACLs          *acls.Syncer
 }
 
-func clientsForCluster(t framework.TestingT, ctx context.Context, cluster string) *clusterClients {
+func clientsForCluster(t framework.TestingT, ctx context.Context, cluster string, user *redpandav1alpha2.User) *clusterClients {
 	// we construct a fake user to grab all of the clients for the cluster
 	referencer := &redpandav1alpha2.User{
 		ObjectMeta: metav1.ObjectMeta{
@@ -45,6 +45,19 @@ func clientsForCluster(t framework.TestingT, ctx context.Context, cluster string
 	}
 
 	factory := client.NewFactory(t.RestConfig(), t).WithDialer(kube.NewPodDialer(t.RestConfig()).DialContext)
+
+	if user != nil && user.Spec.Authentication != nil {
+		username := user.Name
+		password, err := user.Spec.Authentication.Password.Fetch(ctx, t, user.Namespace)
+		require.NoError(t, err)
+		mechanism := string(*user.Spec.Authentication.Type)
+
+		factory = factory.WithUserAuth(&client.UserAuth{
+			Username:  username,
+			Password:  password,
+			Mechanism: mechanism,
+		})
+	}
 
 	kafka, err := factory.KafkaClient(ctx, referencer)
 	require.NoError(t, err)
@@ -130,7 +143,7 @@ func iCreateCRDbasedUsers(ctx context.Context, cluster string, users *godog.Tabl
 func shouldExistAndBeAbleToAuthenticateToTheCluster(ctx context.Context, user, cluster string) error {
 	t := framework.T(ctx)
 
-	clients := clientsForCluster(t, ctx, cluster)
+	clients := clientsForCluster(t, ctx, cluster, nil)
 
 	t.Logf("Checking for user %q in cluster %q", user, cluster)
 	require.Eventually(t, func() bool {
@@ -141,7 +154,16 @@ func shouldExistAndBeAbleToAuthenticateToTheCluster(ctx context.Context, user, c
 	}, 10*time.Second, 1*time.Second)
 	t.Logf("Found user %q in cluster %q", user, cluster)
 
-	// TODO: add authentication check
+	// Now we do the same check, but authenticated as the user
+
+	var userObject redpandav1alpha2.User
+	require.NoError(t, t.Get(ctx, t.ResourceKey(user), &userObject))
+
+	clients = clientsForCluster(t, ctx, cluster, &userObject)
+	users, err := clients.RedpandaAdmin.ListUsers(ctx)
+
+	require.NoError(t, err)
+	require.Contains(t, users, user)
 
 	return nil
 }
@@ -149,7 +171,7 @@ func shouldExistAndBeAbleToAuthenticateToTheCluster(ctx context.Context, user, c
 func thereIsNoUser(ctx context.Context, user, cluster string) error {
 	t := framework.T(ctx)
 
-	clients := clientsForCluster(t, ctx, cluster)
+	clients := clientsForCluster(t, ctx, cluster, nil)
 
 	t.Logf("Checking that user %q does not exist in cluster %q", user, cluster)
 	require.Eventually(t, func() bool {
