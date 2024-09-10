@@ -69,8 +69,12 @@ func clientsForCluster(t framework.TestingT, ctx context.Context, cluster string
 func usersFromTable(t framework.TestingT, cluster string, table *godog.Table) []*redpandav1alpha2.User {
 	var users []*redpandav1alpha2.User
 
-	for _, row := range table.Rows {
+	for i, row := range table.Rows {
+		// skip the header row:
 		// | name | password | mechanism | acls |
+		if i == 0 {
+			continue
+		}
 		name, password, mechanism, acls := row.Cells[0].Value, row.Cells[1].Value, row.Cells[2].Value, row.Cells[3].Value
 		name, password, mechanism, acls = strings.TrimSpace(name), strings.TrimSpace(password), strings.TrimSpace(mechanism), strings.TrimSpace(acls)
 		user := &redpandav1alpha2.User{
@@ -116,6 +120,7 @@ func iCreateCRDbasedUsers(ctx context.Context, cluster string, users *godog.Tabl
 	t := framework.T(ctx)
 
 	for _, user := range usersFromTable(t, cluster, users) {
+		t.Logf("Creating user %q", user.Name)
 		require.NoError(t, t.Create(ctx, user))
 	}
 
@@ -127,12 +132,14 @@ func shouldExistAndBeAbleToAuthenticateToTheCluster(ctx context.Context, user, c
 
 	clients := clientsForCluster(t, ctx, cluster)
 
+	t.Logf("Checking for user %q in cluster %q", user, cluster)
 	require.Eventually(t, func() bool {
 		users, err := clients.Users.List(ctx)
 		require.NoError(t, err)
 
 		return slices.Contains(users, user)
 	}, 10*time.Second, 1*time.Second)
+	t.Logf("Found user %q in cluster %q", user, cluster)
 
 	// TODO: add authentication check
 
@@ -144,12 +151,14 @@ func thereIsNoUser(ctx context.Context, user, cluster string) error {
 
 	clients := clientsForCluster(t, ctx, cluster)
 
+	t.Logf("Checking that user %q does not exist in cluster %q", user, cluster)
 	require.Eventually(t, func() bool {
 		users, err := clients.Users.List(ctx)
 		require.NoError(t, err)
 
 		return !slices.Contains(users, user)
 	}, 10*time.Second, 1*time.Second)
+	t.Logf("Found no user %q in cluster %q", user, cluster)
 
 	return nil
 }

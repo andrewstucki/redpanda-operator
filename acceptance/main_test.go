@@ -11,6 +11,8 @@ import (
 	"github.com/redpanda-data/redpanda-operator/acceptance/framework"
 	_ "github.com/redpanda-data/redpanda-operator/acceptance/steps"
 	"github.com/redpanda-data/redpanda-operator/acceptance/tags"
+	"github.com/stretchr/testify/require"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -43,6 +45,7 @@ func TestMain(m *testing.M) {
 		WithCRDDirectory("../src/go/k8s/config/crd/bases").
 		WithCRDDirectory("../src/go/k8s/config/crd/bases/toolkit.fluxcd.io").
 		OnFeature(func(ctx context.Context, t framework.TestingT) {
+			t.Log("Installing Redpanda operator chart")
 			t.InstallHelmChart(ctx, "https://charts.redpanda.com", "redpanda", "operator", helm.InstallOptions{
 				Name:      "redpanda-operator",
 				Namespace: t.IsolateNamespace(ctx),
@@ -59,6 +62,26 @@ func TestMain(m *testing.M) {
 					"additionalCmdFlags": []string{"--additional-controllers=all"},
 				},
 			})
+			t.Log("Successfully installed Redpanda operator chart")
+
+			// hack until we get the RBAC configuration for users copied over to the helm chart
+			var role rbacv1.Role
+			require.NoError(t, t.Get(ctx, t.ResourceKey("redpanda-operator"), &role))
+			role.Rules = append(role.Rules, []rbacv1.PolicyRule{{
+				Verbs:     []string{"get", "list", "patch", "update", "watch"},
+				APIGroups: []string{"cluster.redpanda.com"},
+				Resources: []string{"users"},
+			}, {
+				Verbs:     []string{"update"},
+				APIGroups: []string{"cluster.redpanda.com"},
+				Resources: []string{"users/finalizers"},
+			}, {
+				Verbs:     []string{"get", "patch", "update"},
+				APIGroups: []string{"cluster.redpanda.com"},
+				Resources: []string{"users/status"},
+			}}...)
+
+			require.NoError(t, t.Update(ctx, &role))
 		}).
 		RegisterTag("cluster", 1, tags.ClusterTag).
 		Build()

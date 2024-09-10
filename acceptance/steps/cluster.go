@@ -13,6 +13,7 @@ import (
 func checkClusterAvailability(ctx context.Context, clusterName string) {
 	t := framework.T(ctx)
 
+	t.Logf("Checking cluster %q is ready", clusterName)
 	require.Eventually(t, func() bool {
 		var cluster redpandav1alpha2.Redpanda
 		require.NoError(t, t.Get(ctx, t.ResourceKey(clusterName), &cluster))
@@ -22,4 +23,5 @@ func checkClusterAvailability(ctx context.Context, clusterName string) {
 			Reason: "RedpandaClusterDeployed",
 		}, cluster.Status.Conditions)
 	}, 5*time.Minute, 5*time.Second)
+	t.Logf("Cluster %q is ready!", clusterName)
 }

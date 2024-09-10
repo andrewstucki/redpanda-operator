@@ -12,7 +12,9 @@ func ClusterTag(ctx context.Context, t framework.TestingT, args ...string) conte
 	require.Greater(t, len(args), 0, "clusters tags can only be used with additional arguments")
 	name := args[0]
 
+	t.Logf("Installing cluster %q", name)
 	t.ApplyManifest(ctx, filepath.Join("clusters", name))
+	t.Logf("Finished installing cluster %q", name)
 
 	return ctx
 }

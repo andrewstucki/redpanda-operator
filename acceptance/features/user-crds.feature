@@ -1,7 +1,7 @@
-# @cluster:sasl
+@cluster:sasl
 Feature: User CRDs
-#   Background: Cluster available
-    # Given cluster "sasl" is available
+  Background: Cluster available
+    Given cluster "sasl" is available
 
   Scenario: Managing Users
     Given there is no user "bob" in cluster "sasl"
