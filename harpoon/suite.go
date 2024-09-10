@@ -11,8 +11,8 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/cucumber/godog/colors"
 	"github.com/redpanda-data/helm-charts/pkg/helm"
-	internaltesting "github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/testing"
-	"github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/tracking"
+	internaltesting "github.com/redpanda-data/redpanda-operator/harpoon/internal/testing"
+	"github.com/redpanda-data/redpanda-operator/harpoon/internal/tracking"
 )
 
 func setShortTimeout(timeout *time.Duration, short time.Duration) {

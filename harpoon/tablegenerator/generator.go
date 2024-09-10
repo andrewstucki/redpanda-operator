@@ -12,7 +12,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/olekukonko/tablewriter"
 
-	"github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/tracking"
+	"github.com/redpanda-data/redpanda-operator/harpoon/internal/tracking"
 )
 
 var dryRun bool

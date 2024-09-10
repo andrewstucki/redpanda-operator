@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-logr/logr"
 	"github.com/redpanda-data/helm-charts/pkg/helm"
-	"github.com/redpanda-data/redpanda-operator/acceptance/framework"
 	_ "github.com/redpanda-data/redpanda-operator/acceptance/steps"
-	"github.com/redpanda-data/redpanda-operator/acceptance/tags"
+	framework "github.com/redpanda-data/redpanda-operator/harpoon"
 	"github.com/stretchr/testify/require"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -83,7 +83,7 @@ func TestMain(m *testing.M) {
 
 			require.NoError(t, t.Update(ctx, &role))
 		}).
-		RegisterTag("cluster", 1, tags.ClusterTag).
+		RegisterTag("cluster", 1, ClusterTag).
 		Build()
 
 	if err != nil {
@@ -96,4 +96,15 @@ func TestMain(m *testing.M) {
 
 func TestSuite(t *testing.T) {
 	suite.RunT(t)
+}
+
+func ClusterTag(ctx context.Context, t framework.TestingT, args ...string) context.Context {
+	require.Greater(t, len(args), 0, "clusters tags can only be used with additional arguments")
+	name := args[0]
+
+	t.Logf("Installing cluster %q", name)
+	t.ApplyManifest(ctx, filepath.Join("clusters", name))
+	t.Logf("Finished installing cluster %q", name)
+
+	return ctx
 }

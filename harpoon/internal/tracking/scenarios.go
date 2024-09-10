@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/cucumber/godog"
-	internaltesting "github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/testing"
+	internaltesting "github.com/redpanda-data/redpanda-operator/harpoon/internal/testing"
 )
 
 type scenario struct {

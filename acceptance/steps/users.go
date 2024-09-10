@@ -10,7 +10,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/redpanda-data/common-go/rpadmin"
 	"github.com/redpanda-data/helm-charts/pkg/kube"
-	"github.com/redpanda-data/redpanda-operator/acceptance/framework"
+	framework "github.com/redpanda-data/redpanda-operator/harpoon"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/src/go/k8s/api/redpanda/v1alpha2"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/client"
 	"github.com/redpanda-data/redpanda-operator/src/go/k8s/pkg/client/acls"

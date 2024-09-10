@@ -1,6 +1,6 @@
 package steps
 
-import "github.com/redpanda-data/redpanda-operator/acceptance/framework"
+import framework "github.com/redpanda-data/redpanda-operator/harpoon"
 
 func init() {
 	framework.RegisterStep(`^cluster "([^"]*)" is available$`, checkClusterAvailability)
