@@ -9,4 +9,5 @@ func init() {
 	framework.RegisterStep(`^"([^"]*)" should now exist in redpanda$`, shouldNowExistInRedpanda)
 	framework.RegisterStep(`^there is a pre-existing user "([^"]*)"$`, thereIsAPreexistingUser)
 	framework.RegisterStep(`^there is no user "([^"]*)"$`, thereIsNoUser)
+	framework.RegisterStep(`^cluster "([^"]*)" is available$`, checkClusterAvailability)
 }

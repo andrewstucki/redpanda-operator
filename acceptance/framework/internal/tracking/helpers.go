@@ -90,6 +90,9 @@ func tagsForFeature(tags []*messages.Tag) *tagset {
 func FilterChildren(provider string, children []*messages.FeatureChild) []*messages.FeatureChild {
 	filtered := []*messages.FeatureChild{}
 	for _, child := range children {
+		if child.Scenario == nil {
+			continue
+		}
 		skip := false
 		for _, tag := range child.Scenario.Tags {
 			if tag.Name == "@skip:"+provider {

@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -15,6 +16,10 @@ type KubectlOptions struct {
 	ConfigPath string
 	Namespace  string
 	Env        map[string]string
+}
+
+func (o *KubectlOptions) RestConfig() (*rest.Config, error) {
+	return restConfig(o)
 }
 
 func NewKubectlOptions(config string) *KubectlOptions {
@@ -80,7 +85,7 @@ func defaultOptions() *KubectlOptions {
 	}
 }
 
-func kubectlDelete(ctx context.Context, fileOrDirectory string, options ...*KubectlOptions) (string, error) {
+func KubectlDelete(ctx context.Context, fileOrDirectory string, options ...*KubectlOptions) (string, error) {
 	mergedOptions := defaultOptions()
 	for _, option := range options {
 		mergedOptions = mergedOptions.merge(option)
@@ -89,13 +94,13 @@ func kubectlDelete(ctx context.Context, fileOrDirectory string, options ...*Kube
 	return kubectl(ctx, mergedOptions, "delete", "-f", fileOrDirectory)
 }
 
-func kubectlApply(ctx context.Context, fileOrDirectory string, options ...*KubectlOptions) (string, error) {
+func KubectlApply(ctx context.Context, fileOrDirectory string, options ...*KubectlOptions) (string, error) {
 	mergedOptions := defaultOptions()
 	for _, option := range options {
 		mergedOptions = mergedOptions.merge(option)
 	}
 
-	return kubectl(ctx, mergedOptions, "apply", "-f", fileOrDirectory)
+	return kubectl(ctx, mergedOptions, "apply", "--server-side", "-f", fileOrDirectory)
 }
 
 func kubectl(ctx context.Context, options *KubectlOptions, args ...string) (string, error) {

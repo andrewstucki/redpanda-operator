@@ -2,25 +2,26 @@ package tags
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 
 	"github.com/redpanda-data/redpanda-operator/acceptance/framework"
+	"github.com/stretchr/testify/require"
 )
 
-func ClusterTag(ctx context.Context, suffix string) (func(context.Context) error, error) {
-	if suffix == "" {
-		return nil, errors.New("clusters tags can only be used with a suffix")
+const clusterContextKey = contextKey("cluster")
+
+func Cluster(ctx context.Context) string {
+	if val := ctx.Value(clusterContextKey); val != nil {
+		return val.(string)
 	}
+	return ""
+}
 
-	t := framework.T(ctx)
+func ClusterTag(ctx context.Context, t framework.TestingT, args ...string) context.Context {
+	require.Greater(t, len(args), 0, "clusters tags can only be used with additional arguments")
+	name := args[0]
 
-	cluster := filepath.Join("clusters", suffix)
+	t.ApplyManifest(ctx, filepath.Join("clusters", name))
 
-	t.ApplyManifestNoCleanup(ctx, cluster)
-
-	return func(ctx context.Context) error {
-		t.DeleteManifest(ctx, cluster)
-		return nil
-	}, nil
+	return context.WithValue(ctx, clusterContextKey, name)
 }

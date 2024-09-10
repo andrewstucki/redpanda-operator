@@ -1,5 +1,8 @@
-@isolated @cluster:basic
+@cluster:basic
 Feature: User CRDs
+  Background: Cluster available
+    Given cluster "basic" is available
+
   Scenario: Managing Users
     Given there is no user "bob"
     When I create a user CRD for "bob" with authentication

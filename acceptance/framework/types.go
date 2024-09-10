@@ -6,30 +6,30 @@ import (
 	"github.com/cucumber/godog"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/redpanda-data/helm-charts/pkg/helm"
 	internaltesting "github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Redefine the interfaces from the internal package
 
-type TagHandler func(ctx context.Context, suffix string) (func(context.Context) error, error)
+type TagHandler func(ctx context.Context, t TestingT, arguments ...string) context.Context
 
 type TestingT interface {
 	godog.TestingT
 	client.Client
 
-	Cleanup(fn func(context.Context) error)
+	Cleanup(fn func(context.Context))
 	ResourceKey(name string) types.NamespacedName
 
 	ApplyFixture(ctx context.Context, fileOrDirectory string)
-	ApplyNamespacedFixture(ctx context.Context, fileOrDirectory, namespace string)
+	ApplyManifest(ctx context.Context, fileOrDirectory string)
 
-	ApplyManifestNoCleanup(ctx context.Context, fileOrDirectory string)
-	DeleteManifest(ctx context.Context, fileOrDirectory string)
+	IsolateNamespace(ctx context.Context) string
+
+	InstallHelmChart(ctx context.Context, url, repo, chart string, options helm.InstallOptions)
 
 	Namespace() string
-	CreateNamespace(ctx context.Context) string
-	DeleteNamespace(ctx context.Context, namespace string)
 }
 
 type Provider interface {

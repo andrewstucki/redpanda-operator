@@ -1,11 +1,9 @@
-package lifecycle
+package testing
 
 import (
 	"context"
 	"sync"
 	"time"
-
-	internaltesting "github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/testing"
 )
 
 // Logger is an interface for a logger that the Cleaner
@@ -26,7 +24,7 @@ type Cleaner struct {
 }
 
 // NewCleaner returns a new Cleaner object.
-func NewCleaner(logger Logger, opt *internaltesting.TestingOptions) *Cleaner {
+func NewCleaner(logger Logger, opt *TestingOptions) *Cleaner {
 	return &Cleaner{
 		logger:          logger,
 		retainOnFailure: opt.RetainOnFailure,
@@ -35,7 +33,7 @@ func NewCleaner(logger Logger, opt *internaltesting.TestingOptions) *Cleaner {
 }
 
 // Cleanup registers the callback to be called when DoCleanup is called.
-func (c *Cleaner) Cleanup(fn internaltesting.CleanupFunc) {
+func (c *Cleaner) Cleanup(fn CleanupFunc) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -44,9 +42,7 @@ func (c *Cleaner) Cleanup(fn internaltesting.CleanupFunc) {
 			c.logger.Log("skipping cleanup due to test failure and retain flag being set")
 			return
 		}
-		if err := fn(ctx); err != nil {
-			c.logger.Logf("WARNING: error running cleanup hook: %v", err)
-		}
+		fn(ctx)
 	})
 }
 

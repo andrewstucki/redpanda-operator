@@ -7,15 +7,15 @@ import (
 )
 
 // CleanupFunc is a function run during a cleanup execution.
-type CleanupFunc func(context.Context) error
+type CleanupFunc func(context.Context)
 
 // TagHandler is a function that processes a tag and returns a cleanup function.
-type TagHandler func(context.Context, string) (func(context.Context) error, error)
+type TagHandler func(context.Context, *TestingT, ...string) context.Context
 
 type ParsedTagHandler struct {
-	Priority int
-	Suffix   string
-	Handler  TagHandler
+	Priority  int
+	Arguments []string
+	Handler   TagHandler
 }
 
 type PriorityTagHandler struct {
@@ -44,19 +44,19 @@ func (r *TagRegistry) Handlers(tags []string) []ParsedTagHandler {
 	handlers := []ParsedTagHandler{}
 
 	for _, tag := range tags {
-		tokens := strings.SplitN(tag, ":", 2)
+		tokens := strings.Split(tag, ":")
 		tag = tokens[0]
 
-		suffix := ""
-		if len(tokens) == 2 {
-			suffix = tokens[1]
+		args := []string{}
+		if len(tokens) > 1 {
+			args = tokens[1:]
 		}
 
 		if handler, ok := r.tags[tag]; ok {
 			handlers = append(handlers, ParsedTagHandler{
-				Suffix:   suffix,
-				Priority: handler.Priority,
-				Handler:  handler.Handler,
+				Arguments: args,
+				Priority:  handler.Priority,
+				Handler:   handler.Handler,
 			})
 		}
 	}

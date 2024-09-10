@@ -8,12 +8,11 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/cucumber/godog/formatters"
 	messages "github.com/cucumber/messages/go/v21"
-	"github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/lifecycle"
 	internaltesting "github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/testing"
 )
 
 type feature struct {
-	*lifecycle.Cleaner
+	*internaltesting.Cleaner
 
 	opts           *internaltesting.TestingOptions
 	scenariosToRun int
@@ -39,16 +38,18 @@ type FeatureHookTracker struct {
 	registry    *internaltesting.TagRegistry
 	opts        *internaltesting.TestingOptions
 
-	features map[string]*feature
-	mutex    sync.RWMutex
+	onFeatures []func(context.Context, *internaltesting.TestingT)
+	features   map[string]*feature
+	mutex      sync.RWMutex
 }
 
-func NewFeatureHookTracker(registry *internaltesting.TagRegistry, opts *internaltesting.TestingOptions) *FeatureHookTracker {
+func NewFeatureHookTracker(registry *internaltesting.TagRegistry, opts *internaltesting.TestingOptions, onFeatures, onScenarios []func(context.Context, *internaltesting.TestingT)) *FeatureHookTracker {
 	return &FeatureHookTracker{
-		scenarios: newScenarioHookTracker(registry, opts),
-		registry:  registry,
-		opts:      opts,
-		features:  make(map[string]*feature),
+		scenarios:  newScenarioHookTracker(registry, opts, onScenarios),
+		onFeatures: onFeatures,
+		registry:   registry,
+		opts:       opts,
+		features:   make(map[string]*feature),
 	}
 }
 
@@ -61,27 +62,25 @@ func (f *FeatureHookTracker) Scenario(ctx context.Context, scenario *godog.Scena
 	if !features.isRunning {
 		opts := f.opts.Clone()
 
+		cleaner := internaltesting.NewCleaner(godog.T(ctx), opts)
+
 		features.isRunning = true
 		features.opts = opts
-		features.Cleaner = lifecycle.NewCleaner(godog.T(ctx), opts)
+		features.Cleaner = cleaner
 
-		var err error
+		t := internaltesting.NewTesting(ctx, opts, cleaner)
+
+		// we process the configured hooks first and then tags
+		for _, fn := range f.onFeatures {
+			fn(ctx, t)
+		}
+
 		for _, fn := range f.registry.Handlers(features.tags.flatten()) {
-			var cleanup func(context.Context) error
-			// we make a throwaway context here so that we can leverage the
-			// testing wrapper in our tag helpers -- any changes to the underlying
-			// options will be propagated down the feature, scenario, step chain
-			cleanup, err = fn.Handler(internaltesting.TestingContext(ctx, opts), fn.Suffix)
-			if cleanup != nil {
-				features.Cleanup(cleanup)
-			}
+			// iteratively inject tag handler context
+			ctx = fn.Handler(ctx, t, fn.Arguments...)
 		}
 
 		f.features[scenario.Uri] = features
-
-		if err != nil {
-			return ctx, err
-		}
 	}
 
 	return f.scenarios.start(ctx, scenario, features, func() {

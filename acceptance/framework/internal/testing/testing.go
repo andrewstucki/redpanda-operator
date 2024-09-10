@@ -14,10 +14,7 @@ import (
 
 type contextKey struct{}
 
-var (
-	testingContextKey contextKey = struct{}{}
-	noopCancel                   = func() {}
-)
+var testingContextKey contextKey = struct{}{}
 
 // TestingOptions are configurable options for the testing environment
 type TestingOptions struct {
@@ -54,15 +51,14 @@ func (o *TestingOptions) Clone() *TestingOptions {
 type TestingT struct {
 	godog.TestingT
 	client.Client
+	*Cleaner
 
 	restConfig *rest.Config
 	options    *TestingOptions
-	cleanupFns []func(ctx context.Context)
 	failure    bool
 }
 
-// TestingContext injects a TestingT into the given context.
-func TestingContext(ctx context.Context, options *TestingOptions) context.Context {
+func NewTesting(ctx context.Context, options *TestingOptions, cleaner *Cleaner) *TestingT {
 	t := godog.T(ctx)
 
 	client, err := kubernetesClient(options.KubectlOptions)
@@ -71,12 +67,13 @@ func TestingContext(ctx context.Context, options *TestingOptions) context.Contex
 	restConfig, err := restConfig(options.KubectlOptions)
 	require.NoError(t, err)
 
-	return context.WithValue(ctx, testingContextKey, &TestingT{
+	return &TestingT{
 		TestingT:   t,
 		Client:     client,
+		Cleaner:    cleaner,
 		restConfig: restConfig,
 		options:    options,
-	})
+	}
 }
 
 // T pulls a TestingT from the given context.
@@ -84,24 +81,12 @@ func T(ctx context.Context) *TestingT {
 	return ctx.Value(testingContextKey).(*TestingT)
 }
 
-// Cleanup registers a cleanup hook on the test that
-// will run after the scenario finishes.
-func (t *TestingT) Cleanup(fn func(context.Context) error) {
-	t.cleanup(false, fn)
+func (t *TestingT) IntoContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, testingContextKey, t)
 }
 
-// DoCleanup calls the cleanup functions on the TestingT in the
-// test context.
-func (t *TestingT) DoCleanup(ctx context.Context) {
-	cancel := noopCancel
-	if t.options.CleanupTimeout != 0 {
-		ctx, cancel = context.WithTimeout(ctx, t.options.CleanupTimeout)
-	}
-	defer cancel()
-
-	for _, fn := range t.cleanupFns {
-		fn(ctx)
-	}
+func (t *TestingT) Cleanup(fn func(context.Context)) {
+	t.Cleaner.Cleanup(fn)
 }
 
 // IsFailure returns whether this test failed.
@@ -146,51 +131,25 @@ func (t *TestingT) Fatalf(format string, args ...interface{}) {
 	t.TestingT.Fatalf(format, args...)
 }
 
+// ApplyManifest applies a set of kubernetes manifests via kubectl.
+func (t *TestingT) ApplyManifest(ctx context.Context, fileOrDirectory string) {
+	namespace := t.options.KubectlOptions.Namespace
+
+	opts := t.options.KubectlOptions.Clone()
+	opts.Namespace = namespace
+
+	_, err := KubectlApply(ctx, fileOrDirectory, opts)
+	require.NoError(t, err)
+
+	t.Cleanup(func(ctx context.Context) {
+		_, err := KubectlDelete(ctx, fileOrDirectory, opts)
+		require.NoError(t, err)
+	})
+}
+
 // ApplyFixture applies a set of kubernetes manifests via kubectl.
 func (t *TestingT) ApplyFixture(ctx context.Context, fileOrDirectory string) {
-	t.ApplyNamespacedFixture(ctx, fileOrDirectory, t.options.KubectlOptions.Namespace)
-}
-
-// ApplyManifestNoCleanup applies a set of kubernetes manifests via kubectl.
-func (t *TestingT) ApplyManifestNoCleanup(ctx context.Context, fileOrDirectory string) {
-	_, err := kubectlApply(ctx, fileOrDirectory, t.options.KubectlOptions)
-	require.NoError(t, err)
-}
-
-// ApplyManifest deletes a set of kubernetes manifests via kubectl.
-func (t *TestingT) DeleteManifest(ctx context.Context, fileOrDirectory string) {
-	_, err := kubectlDelete(ctx, fileOrDirectory, t.options.KubectlOptions)
-	require.NoError(t, err)
-}
-
-// ApplyNamespacedFixture applies a set of kubernetes manifests via kubectl.
-func (t *TestingT) ApplyNamespacedFixture(ctx context.Context, fileOrDirectory, namespace string) {
-	opts := t.options.KubectlOptions.Clone()
-	opts.Namespace = namespace
-
-	fileOrDirectory = filepath.Join("fixtures", fileOrDirectory)
-
-	_, err := kubectlApply(ctx, fileOrDirectory, opts)
-	require.NoError(t, err)
-
-	t.cleanup(true, func(ctx context.Context) error {
-		_, err := kubectlDelete(ctx, fileOrDirectory, opts)
-		return err
-	})
-}
-
-// ApplyNamespacedManifest applies a set of kubernetes manifests via kubectl.
-func (t *TestingT) ApplyNamespacedManifest(ctx context.Context, fileOrDirectory, namespace string) {
-	opts := t.options.KubectlOptions.Clone()
-	opts.Namespace = namespace
-
-	_, err := kubectlApply(ctx, fileOrDirectory, opts)
-	require.NoError(t, err)
-
-	t.cleanup(true, func(ctx context.Context) error {
-		_, err := kubectlDelete(ctx, fileOrDirectory, opts)
-		return err
-	})
+	t.ApplyManifest(ctx, filepath.Join("fixtures", fileOrDirectory))
 }
 
 // ResourceKey returns a types.NamespaceName that can be used with the Kubernetes client,
@@ -212,28 +171,14 @@ func (t *TestingT) SetNamespace(namespace string) {
 	t.options.KubectlOptions.Namespace = namespace
 }
 
-// CreateNamespace creates a temporary namespace for the tests in this scenario to run.
-func (t *TestingT) CreateNamespace(ctx context.Context) string {
-	namespace := AddSuffix("scenario")
-	err := createNamespace(ctx, namespace, t.options.KubectlOptions)
-	require.NoError(t, err)
-	return namespace
-}
+// IsolateNamespace creates a temporary namespace for the tests in this scope to run.
+func (t *TestingT) IsolateNamespace(ctx context.Context) string {
+	namespace := AddSuffix("testing")
 
-// DeleteNamespace deletes a temporary namespace for the tests in this scenario to run.
-func (t *TestingT) DeleteNamespace(ctx context.Context, namespace string) {
-	err := deleteNamespace(ctx, namespace, t.options.KubectlOptions)
-	require.NoError(t, err)
-}
-
-func (t *TestingT) cleanup(checkRetain bool, fn func(context.Context) error) {
-	t.cleanupFns = append(t.cleanupFns, func(ctx context.Context) {
-		if checkRetain && t.failure && t.options.RetainOnFailure {
-			t.Log("skipping cleanup due to test failure and retain flag being set")
-			return
-		}
-		if err := fn(ctx); err != nil {
-			t.Logf("WARNING: error running cleanup hook: %v", err)
-		}
+	require.NoError(t, createNamespace(ctx, namespace, t.options.KubectlOptions))
+	t.Cleanup(func(ctx context.Context) {
+		require.NoError(t, deleteNamespace(ctx, namespace, t.options.KubectlOptions))
 	})
+
+	return namespace
 }

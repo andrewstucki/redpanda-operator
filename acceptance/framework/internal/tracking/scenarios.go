@@ -5,12 +5,11 @@ import (
 	"sync"
 
 	"github.com/cucumber/godog"
-	"github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/lifecycle"
 	internaltesting "github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/testing"
 )
 
 type scenario struct {
-	*lifecycle.Cleaner
+	*internaltesting.Cleaner
 
 	t      *internaltesting.TestingT
 	onFail func()
@@ -20,15 +19,17 @@ type scenarioHookTracker struct {
 	registry *internaltesting.TagRegistry
 	opts     *internaltesting.TestingOptions
 
-	scenarios map[string]*scenario
-	mutex     sync.Mutex
+	onScenarios []func(context.Context, *internaltesting.TestingT)
+	scenarios   map[string]*scenario
+	mutex       sync.Mutex
 }
 
-func newScenarioHookTracker(registry *internaltesting.TagRegistry, opts *internaltesting.TestingOptions) *scenarioHookTracker {
+func newScenarioHookTracker(registry *internaltesting.TagRegistry, opts *internaltesting.TestingOptions, onScenarios []func(context.Context, *internaltesting.TestingT)) *scenarioHookTracker {
 	return &scenarioHookTracker{
-		registry:  registry,
-		opts:      opts,
-		scenarios: make(map[string]*scenario),
+		registry:    registry,
+		opts:        opts,
+		onScenarios: onScenarios,
+		scenarios:   make(map[string]*scenario),
 	}
 }
 
@@ -40,28 +41,28 @@ func (s *scenarioHookTracker) start(ctx context.Context, sc *godog.Scenario, fea
 	// make a copy of the current feature options
 	opts := feature.options()
 
-	cleaner := lifecycle.NewCleaner(godog.T(ctx), opts)
-	ctx = internaltesting.TestingContext(ctx, opts)
+	cleaner := internaltesting.NewCleaner(godog.T(ctx), opts)
+	t := internaltesting.NewTesting(ctx, opts, cleaner)
 
-	var err error
+	// we process the configured hooks first and then tags
+	for _, fn := range s.onScenarios {
+		fn(ctx, t)
+	}
+
 	for _, fn := range s.registry.Handlers(tags.flatten()) {
-		var cleanup func(context.Context) error
-		cleanup, err = fn.Handler(ctx, fn.Suffix)
-
-		if cleanup != nil {
-			cleaner.Cleanup(cleanup)
-		}
+		// iteratively inject tag handler context
+		ctx = fn.Handler(ctx, t, fn.Arguments...)
 	}
 
 	s.scenarios[sc.Id] = &scenario{
 		Cleaner: cleaner,
 		onFail:  onFailure,
-		// hold onto a reference of the TestingT we hand out
-		// so that we can call cleanup on it
-		t: internaltesting.T(ctx),
+		// hold a reference to t so we can track step
+		// failures
+		t: t,
 	}
 
-	return ctx, err
+	return t.IntoContext(ctx), nil
 }
 
 func (s *scenarioHookTracker) finish(ctx context.Context, scenario *godog.Scenario) {
@@ -75,8 +76,6 @@ func (s *scenarioHookTracker) finish(ctx context.Context, scenario *godog.Scenar
 
 	failure := scene.t.IsFailure()
 
-	// clean up everything called in the scenario steps first
-	scene.t.DoCleanup(ctx)
 	// and then clean up the scenario hooks themselves
 	scene.DoCleanup(ctx, failure)
 	if failure {
