@@ -19,11 +19,11 @@ func iApplyKubernetesManifest(ctx context.Context, manifest *godog.DocString) er
 	require.NoError(t, err)
 	require.NoError(t, file.Close())
 
-	t.ApplyManifest(ctx, file.Name())
-
 	t.Cleanup(func(ctx context.Context) {
 		require.NoError(t, os.RemoveAll(file.Name()))
 	})
+
+	t.ApplyManifest(ctx, file.Name())
 
 	return nil
 }

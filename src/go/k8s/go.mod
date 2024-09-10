@@ -27,7 +27,7 @@ require (
 	github.com/prometheus/common v0.55.0
 	github.com/redpanda-data/common-go/rpadmin v0.1.5-0.20240814205445-8e6eb5806561
 	github.com/redpanda-data/console/backend v0.0.0-20240303221210-05d5d9e85f20
-	github.com/redpanda-data/helm-charts v0.0.0-20240820204430-df79bbd7f93c
+	github.com/redpanda-data/helm-charts v0.0.0-20240906192721-081c08b6b83b
 	github.com/redpanda-data/redpanda/src/go/rpk v0.0.0-20240105044330-c094966ca0cf
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.9.0

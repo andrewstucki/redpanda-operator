@@ -81,7 +81,6 @@ func iDeleteTheCRDUser(ctx context.Context, user string) error {
 		t.Errorf("Error deleting user %q: %v", user, err)
 		return nil
 	}
-	t.Logf("User: %+v", userObject)
 	require.NoError(t, t.Delete(ctx, &userObject))
 
 	return nil

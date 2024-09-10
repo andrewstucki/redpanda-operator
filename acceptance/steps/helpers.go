@@ -53,17 +53,9 @@ func (c *clusterClients) AsUser(ctx context.Context, user, password, mechanism s
 	redpanda, err := factory.RedpandaAdminClient(ctx, referencer)
 	require.NoError(t, err)
 
-	users, err := factory.Users(ctx, referencer)
-	require.NoError(t, err)
-
-	syncer, err := factory.ACLs(ctx, referencer)
-	require.NoError(t, err)
-
 	return &clusterClients{
 		Kafka:          kafka,
 		RedpandaAdmin:  redpanda,
-		Users:          users,
-		ACLs:           syncer,
 		resourceTarget: referencer,
 		factory:        factory,
 		t:              t,

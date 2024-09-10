@@ -19,8 +19,8 @@ Feature: User CRDs
   Scenario: Managing Authentication-only Users
     Given there is no user "jason" in cluster "sasl"
     And there are already the following ACLs in cluster "sasl":
-      | user | acls |
-      | bob  | [{"type":"allow","resource":{"type":"topic","name":"some-topic","patternType":"prefixed"},"operations":["Read"]}] |
+      | user   | acls |
+      | jason  | [{"type":"allow","resource":{"type":"cluster"},"operations":["Read"]}] |
     When I apply Kubernetes manifest:
     """
     ---
@@ -38,6 +38,7 @@ Feature: User CRDs
                 valueFrom:
                     secretKeyRef:
                         name: jason-password
+                        key: password
     """
     And "jason" is successfully synced
     And I delete the CRD user "jason"
@@ -60,13 +61,12 @@ Feature: User CRDs
                 name: sasl
         authorization:
             acls:
-            - type: allow
-              resource:
-                type: topic
-                name: some-topic
-                patternType: prefixed
-              operations:
-              - Read
+            -   type: allow
+                resource:
+                    type: topic
+                    name: some-topic
+                    patternType: prefixed
+                operations: [Read]
     """
     And "travis" is successfully synced
     And I delete the CRD user "travis"
