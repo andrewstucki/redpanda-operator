@@ -90,6 +90,10 @@ func (t *TestingT) Cleanup(fn func(context.Context)) {
 	t.Cleaner.Cleanup(fn)
 }
 
+func (t *TestingT) RestConfig() *rest.Config {
+	return rest.CopyConfig(t.restConfig)
+}
+
 // IsFailure returns whether this test failed.
 func (t *TestingT) IsFailure() bool {
 	return t.failure

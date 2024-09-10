@@ -5,6 +5,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 
 	"github.com/redpanda-data/helm-charts/pkg/helm"
 	internaltesting "github.com/redpanda-data/redpanda-operator/acceptance/framework/internal/testing"
@@ -31,6 +32,7 @@ type TestingT interface {
 	InstallHelmChart(ctx context.Context, url, repo, chart string, options helm.InstallOptions)
 
 	Namespace() string
+	RestConfig() *rest.Config
 
 	RequireCondition(expected metav1.Condition, conditions []metav1.Condition)
 	HasCondition(expected metav1.Condition, conditions []metav1.Condition) bool
