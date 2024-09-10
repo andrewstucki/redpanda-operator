@@ -1,3 +1,12 @@
+// Copyright 2024 Redpanda Data, Inc.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.md
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0
+
 package steps
 
 import (
@@ -178,6 +187,7 @@ func usersFromAuthTable(t framework.TestingT, cluster string, table *godog.Table
 
 	return users
 }
+
 func usersFromFullTable(t framework.TestingT, cluster string, table *godog.Table) []*redpandav1alpha2.User {
 	var users []*redpandav1alpha2.User
 
