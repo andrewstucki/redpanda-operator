@@ -39,6 +39,7 @@ require (
 	github.com/twmb/franz-go/pkg/kadm v1.12.0
 	github.com/twmb/franz-go/pkg/kmsg v1.8.0
 	github.com/twmb/franz-go/pkg/sasl/kerberos v1.1.0
+	github.com/twmb/franz-go/pkg/sr v1.0.1
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -453,3 +454,5 @@ replace github.com/fluxcd/source-controller/shim => github.com/redpanda-data/flu
 replace github.com/fluxcd/helm-controller v0.37.2 => github.com/redpanda-data/helm-controller v0.37.3-0.20240119022335-c90fadbd044e
 
 replace pgregory.net/rapid => github.com/chrisseto/rapid v0.0.0-20240815210052-cdeef406c65c
+
+replace github.com/redpanda-data/helm-charts => ../../helm-charts

@@ -25,6 +25,7 @@ import (
 
 const (
 	userClusterIndex        = "__user_referencing_cluster"
+	schemaClusterIndex      = "__schema_referencing_cluster"
 	deploymentClusterIndex  = "__deployment_referencing_cluster"
 	statefulsetClusterIndex = "__statefulset_referencing_cluster"
 )
@@ -53,6 +54,48 @@ func usersForCluster(ctx context.Context, c client.Client, nn types.NamespacedNa
 	childList := &redpandav1alpha2.UserList{}
 	err := c.List(ctx, childList, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(userClusterIndex, nn.String()),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	requests := []reconcile.Request{}
+	for _, item := range childList.Items { //nolint:gocritic // this is necessary
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: item.GetNamespace(),
+				Name:      item.GetName(),
+			},
+		})
+	}
+
+	return requests, nil
+}
+
+func schemaCluster(schema *redpandav1alpha2.Schema) types.NamespacedName {
+	return types.NamespacedName{Namespace: schema.Namespace, Name: schema.Spec.ClusterSource.ClusterRef.Name}
+}
+
+func registerSchemaClusterIndex(ctx context.Context, mgr ctrl.Manager) error {
+	return mgr.GetFieldIndexer().IndexField(ctx, &redpandav1alpha2.User{}, schemaClusterIndex, indexSchemaCluster)
+}
+
+func indexSchemaCluster(o client.Object) []string {
+	schema := o.(*redpandav1alpha2.Schema)
+	source := schema.Spec.ClusterSource
+
+	clusters := []string{}
+	if source != nil && source.ClusterRef != nil {
+		clusters = append(clusters, schemaCluster(schema).String())
+	}
+
+	return clusters
+}
+
+func schemasForCluster(ctx context.Context, c client.Client, nn types.NamespacedName) ([]reconcile.Request, error) {
+	childList := &redpandav1alpha2.SchemaList{}
+	err := c.List(ctx, childList, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(schemaClusterIndex, nn.String()),
 	})
 	if err != nil {
 		return nil, err

@@ -1093,8 +1093,6 @@ github.com/redpanda-data/flux-controller-shim/helm/shim v0.0.0-20231227162419-a4
 github.com/redpanda-data/flux-controller-shim/helm/shim v0.0.0-20231227162419-a45126310240/go.mod h1:5KLXArOMFOrwb3BihpFaRNiPCyo9AXsXhvMdUmrCdUg=
 github.com/redpanda-data/flux-controller-shim/source/shim v0.0.0-20240113100428-5e301ef97b19 h1:sJjDhnIbTMOuP4Rnhm1N3GNfgv6BJlocCnGliNvhgbw=
 github.com/redpanda-data/flux-controller-shim/source/shim v0.0.0-20240113100428-5e301ef97b19/go.mod h1:T39OECA7eOlhpHZPBSGg+bpuwtt/G4m03fjBkJ821CM=
-github.com/redpanda-data/helm-charts v0.0.0-20240920171404-e6c075329771 h1:yqbIHCsRpUz4lrX9LuKb8Xc4vP5bVHVrOzUgHRGuiaE=
-github.com/redpanda-data/helm-charts v0.0.0-20240920171404-e6c075329771/go.mod h1:uEMmuH+gTppAsZZNYlUbh6tuxN3fqffWY0Bi8AcE2Zk=
 github.com/redpanda-data/helm-controller v0.37.3-0.20240119022335-c90fadbd044e h1:8HB05vSCY+0MwjT2DIVq6gJV5iw7nQNIDfMqcc1NEC8=
 github.com/redpanda-data/helm-controller v0.37.3-0.20240119022335-c90fadbd044e/go.mod h1:jF5kbQy3qT/zufL27DE3lecfYTRWeAzSiVmrbDDQwUw=
 github.com/redpanda-data/redpanda/src/go/rpk v0.0.0-20240827155712-244863ea0ae8 h1:uTQKqF8UPNxYxKBJ11VlG6Vt2l9ctkkeXsmmjHUSUG4=
@@ -1268,6 +1266,8 @@ github.com/twmb/franz-go/pkg/kmsg v1.8.0 h1:lAQB9Z3aMrIP9qF9288XcFf/ccaSxEitNA1C
 github.com/twmb/franz-go/pkg/kmsg v1.8.0/go.mod h1:HzYEb8G3uu5XevZbtU0dVbkphaKTHk0X68N5ka4q6mU=
 github.com/twmb/franz-go/pkg/sasl/kerberos v1.1.0 h1:alKdbddkPw3rDh+AwmUEwh6HNYgTvDSFIe/GWYRR9RM=
 github.com/twmb/franz-go/pkg/sasl/kerberos v1.1.0/go.mod h1:k8BoBjyUbFj34f0rRbn+Ky12sZFAPbmShrg0karAIMo=
+github.com/twmb/franz-go/pkg/sr v1.0.1 h1:hf3eRFDUWSfmR7JQCS/3JiqZEQwqbiDSS/DooewMHCE=
+github.com/twmb/franz-go/pkg/sr v1.0.1/go.mod h1:aUFRRLI5WYKpKzmWDztzZFecx5eOkCNuuamd91jUV5c=
 github.com/twmb/tlscfg v1.2.1 h1:IU2efmP9utQEIV2fufpZjPq7xgcZK4qu25viD51BB44=
 github.com/twmb/tlscfg v1.2.1/go.mod h1:GameEQddljI+8Es373JfQEBvtI4dCTLKWGJbqT2kErs=
 github.com/vbatts/tar-split v0.11.5 h1:3bHCTIheBm1qFTcgh9oPu+nNBtX+XJIupG/vacinCts=
