@@ -217,14 +217,14 @@ func InitializeResourceReconcilerTest[T any, U Resource[T]](t *testing.T, ctx co
 		},
 	}
 
-	syncedClusterRefCondition := redpandav1alpha2.SchemaSyncedCondition("test")
+	syncedClusterRefCondition := redpandav1alpha2.ResourceSyncedCondition("test")
 
-	invalidClusterRefCondition := redpandav1alpha2.SchemaNotSyncedCondition(
-		redpandav1alpha2.SchemaConditionReasonClusterRefInvalid, errors.New("test"),
+	invalidClusterRefCondition := redpandav1alpha2.ResourceNotSyncedCondition(
+		redpandav1alpha2.ResourceConditionReasonClusterRefInvalid, errors.New("test"),
 	)
 
-	clientErrorCondition := redpandav1alpha2.SchemaNotSyncedCondition(
-		redpandav1alpha2.SchemaConditionReasonTerminalClientError, errors.New("test"),
+	clientErrorCondition := redpandav1alpha2.ResourceNotSyncedCondition(
+		redpandav1alpha2.ResourceConditionReasonTerminalClientError, errors.New("test"),
 	)
 
 	return &ResourceReconcilerTestEnvironment[T, U]{

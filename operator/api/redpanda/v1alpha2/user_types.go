@@ -12,7 +12,6 @@ package v1alpha2
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/functional"
@@ -460,35 +459,6 @@ func (s ACLResourceSpec) GetName() string {
 	}
 
 	return s.Name
-}
-
-const (
-	UserConditionTypeSynced = "Synced"
-
-	UserConditionReasonPending              = "Pending"
-	UserConditionReasonSynced               = "Synced"
-	UserConditionReasonClusterRefInvalid    = "ClusterRefInvalid"
-	UserConditionReasonConfigurationInvalid = "ConfigurationInvalid"
-	UserConditionReasonTerminalClientError  = "TerminalClientError"
-	UserConditionReasonUnexpectedError      = "UnexpectedError"
-)
-
-func UserSyncedCondition(name string) metav1.Condition {
-	return metav1.Condition{
-		Type:    UserConditionTypeSynced,
-		Status:  metav1.ConditionTrue,
-		Reason:  UserConditionReasonSynced,
-		Message: fmt.Sprintf("User %q successfully synced to cluster.", name),
-	}
-}
-
-func UserNotSyncedCondition(reason string, err error) metav1.Condition {
-	return metav1.Condition{
-		Type:    UserConditionTypeSynced,
-		Status:  metav1.ConditionFalse,
-		Reason:  reason,
-		Message: fmt.Sprintf("Error: %v", err),
-	}
 }
 
 // UserStatus defines the observed state of a Redpanda user

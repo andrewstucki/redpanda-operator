@@ -10,7 +10,6 @@
 package v1alpha2
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/functional"
@@ -313,35 +312,6 @@ type SchemaStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// Versions shows the versions of a given schema
 	Versions []int `json:"versions,omitempty"`
-}
-
-const (
-	SchemaConditionTypeSynced = "Synced"
-
-	SchemaConditionReasonPending              = "Pending"
-	SchemaConditionReasonSynced               = "Synced"
-	SchemaConditionReasonClusterRefInvalid    = "ClusterRefInvalid"
-	SchemaConditionReasonConfigurationInvalid = "ConfigurationInvalid"
-	SchemaConditionReasonTerminalClientError  = "TerminalClientError"
-	SchemaConditionReasonUnexpectedError      = "UnexpectedError"
-)
-
-func SchemaSyncedCondition(name string) metav1.Condition {
-	return metav1.Condition{
-		Type:    SchemaConditionTypeSynced,
-		Status:  metav1.ConditionTrue,
-		Reason:  SchemaConditionReasonSynced,
-		Message: fmt.Sprintf("Schema %q successfully synced to cluster.", name),
-	}
-}
-
-func SchemaNotSyncedCondition(reason string, err error) metav1.Condition {
-	return metav1.Condition{
-		Type:    SchemaConditionTypeSynced,
-		Status:  metav1.ConditionFalse,
-		Reason:  reason,
-		Message: fmt.Sprintf("Error: %v", err),
-	}
 }
 
 // SchemaList contains a list of Redpanda schema objects.

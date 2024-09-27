@@ -134,15 +134,15 @@ func ignoreAllConnectionErrors(logger logr.Logger, err error) error {
 func handleResourceSyncErrors(err error) (metav1.Condition, error) {
 	// If we have a known terminal error, just set the sync condition and don't re-run reconciliation.
 	if internalclient.IsInvalidClusterError(err) {
-		return redpandav1alpha2.SchemaNotSyncedCondition(redpandav1alpha2.SchemaConditionReasonClusterRefInvalid, err), nil
+		return redpandav1alpha2.ResourceNotSyncedCondition(redpandav1alpha2.ResourceConditionReasonClusterRefInvalid, err), nil
 	}
 	if internalclient.IsConfigurationError(err) {
-		return redpandav1alpha2.UserNotSyncedCondition(redpandav1alpha2.SchemaConditionReasonConfigurationInvalid, err), nil
+		return redpandav1alpha2.ResourceNotSyncedCondition(redpandav1alpha2.ResourceConditionReasonConfigurationInvalid, err), nil
 	}
 	if internalclient.IsTerminalClientError(err) {
-		return redpandav1alpha2.UserNotSyncedCondition(redpandav1alpha2.SchemaConditionReasonTerminalClientError, err), nil
+		return redpandav1alpha2.ResourceNotSyncedCondition(redpandav1alpha2.ResourceConditionReasonTerminalClientError, err), nil
 	}
 
 	// otherwise, set a generic unexpected error and return an error so we can re-reconcile.
-	return redpandav1alpha2.SchemaNotSyncedCondition(redpandav1alpha2.SchemaConditionReasonUnexpectedError, err), err
+	return redpandav1alpha2.ResourceNotSyncedCondition(redpandav1alpha2.ResourceConditionReasonUnexpectedError, err), err
 }

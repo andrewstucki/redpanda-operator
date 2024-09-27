@@ -65,7 +65,7 @@ func (r *UserReconciler) SyncResource(ctx context.Context, request ResourceReque
 		if err != nil {
 			syncCondition, err = handleResourceSyncErrors(err)
 		} else {
-			syncCondition = redpandav1alpha2.UserSyncedCondition(user.Name)
+			syncCondition = redpandav1alpha2.ResourceSyncedCondition(user.Name)
 		}
 
 		return kubernetes.ApplyPatch(config.WithStatus(redpandav1alpha2ac.UserStatus().

@@ -54,7 +54,7 @@ func (r *SchemaReconciler) SyncResource(ctx context.Context, request ResourceReq
 		if err != nil {
 			syncCondition, err = handleResourceSyncErrors(err)
 		} else {
-			syncCondition = redpandav1alpha2.SchemaSyncedCondition(schema.Name)
+			syncCondition = redpandav1alpha2.ResourceSyncedCondition(schema.Name)
 		}
 
 		return kubernetes.ApplyPatch(config.WithStatus(redpandav1alpha2ac.SchemaStatus().
