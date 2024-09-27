@@ -27,6 +27,7 @@ func init() {
 // +kubebuilder:resource:path=schemas
 // +kubebuilder:resource:shortName=sc
 // +kubebuilder:printcolumn:name="Synced",type="string",JSONPath=`.status.conditions[?(@.type=="Synced")].status`
+// +kubebuilder:printcolumn:name="Latest Version",type="number",JSONPath=`.status.versions[-1]`
 type Schema struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
