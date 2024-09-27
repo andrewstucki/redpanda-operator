@@ -17,6 +17,7 @@ import (
 	"github.com/redpanda-data/helm-charts/pkg/redpanda"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/acls"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/schemas"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/users"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -74,6 +75,9 @@ type ClientFactory interface {
 
 	// Users returns a high-level client for managing users.
 	Users(ctx context.Context, object redpandav1alpha2.ClusterReferencingObject, opts ...kgo.Opt) (*users.Client, error)
+
+	// Schemas returns a high-level client for synchronizing Schemas.
+	Schemas(ctx context.Context, object redpandav1alpha2.ClusterReferencingObject) (*schemas.Syncer, error)
 }
 
 type Factory struct {
@@ -175,6 +179,15 @@ func (c *Factory) SchemaRegistryClient(ctx context.Context, obj client.Object) (
 	}
 
 	return nil, ErrInvalidRedpandaClientObject
+}
+
+func (c *Factory) Schemas(ctx context.Context, obj redpandav1alpha2.ClusterReferencingObject) (*schemas.Syncer, error) {
+	schemaRegistryClient, err := c.SchemaRegistryClient(ctx, obj)
+	if err != nil {
+		return nil, err
+	}
+
+	return schemas.NewSyncer(schemaRegistryClient), nil
 }
 
 func (c *Factory) ACLs(ctx context.Context, obj redpandav1alpha2.ClusterReferencingObject, opts ...kgo.Opt) (*acls.Syncer, error) {

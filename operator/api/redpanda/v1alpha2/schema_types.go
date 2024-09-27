@@ -10,8 +10,6 @@
 package v1alpha2
 
 import (
-	"slices"
-
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/functional"
 	"github.com/twmb/franz-go/pkg/sr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,63 +36,6 @@ type Schema struct {
 	// Represents the current status of the Redpanda schema.
 	// +kubebuilder:default={conditions: {{type: "Synced", status: "Unknown", reason:"Pending", message:"Waiting for controller", lastTransitionTime: "1970-01-01T00:00:00Z"}}}
 	Status SchemaStatus `json:"status,omitempty"`
-}
-
-func (s *Schema) Matches(schema *sr.SubjectSchema) bool {
-	// TODO: actually fill this in
-
-	if s.Name != schema.Subject {
-		return false
-	}
-
-	// type
-	if schemaTypesFromKafka[schema.Type] != s.GetSchemaType() {
-		return false
-	}
-
-	// text
-	if s.Spec.Text != schema.Schema.Schema {
-		return false
-	}
-
-	// references
-	if !functional.CompareConvertibleSlices(s.Spec.References, schema.References, func(a SchemaReference, b sr.SchemaReference) bool {
-		return false
-	}) {
-		return false
-	}
-
-	// metadata
-	if !functional.CompareMaps(s.Spec.SchemaMetadata.Properties, schema.SchemaMetadata.Properties) {
-		return false
-	}
-	if !functional.CompareMapsFn(s.Spec.SchemaMetadata.Tags, schema.SchemaMetadata.Tags, slices.Equal) {
-		return false
-	}
-	if !slices.Equal(s.Spec.SchemaMetadata.Sensitive, schema.SchemaMetadata.Sensitive) {
-		return false
-	}
-
-	// rule set
-	if !functional.CompareConvertibleSlices(s.Spec.SchemaRuleSet.DomainRules, schema.SchemaRuleSet.DomainRules, func(a SchemaRule, b sr.SchemaRule) bool {
-		return false
-	}) {
-		return false
-	}
-	if !functional.CompareConvertibleSlices(s.Spec.SchemaRuleSet.MigrationRules, schema.SchemaRuleSet.MigrationRules, func(a SchemaRule, b sr.SchemaRule) bool {
-		return false
-	}) {
-		return false
-	}
-
-	return true
-}
-
-func (s *Schema) ToKafka() sr.Schema {
-	// TODO: actually fill this in
-	return sr.Schema{
-		Schema: s.Spec.Text,
-	}
 }
 
 func (s *Schema) GetSchemaType() SchemaType {
@@ -133,6 +74,14 @@ var (
 	}
 )
 
+func (s SchemaType) ToKafka() sr.SchemaType {
+	return schemaTypesToKafka[s]
+}
+
+func SchemaTypeFromKafka(s sr.SchemaType) SchemaType {
+	return schemaTypesFromKafka[s]
+}
+
 // SchemaRuleKind as an enum representing the kind of schema rule.
 //
 // +kubebuilder:validation:Enum=transform;condition
@@ -142,6 +91,25 @@ const (
 	SchemaRuleKindTransform SchemaRuleKind = "transform"
 	SchemaRuleKindCondition SchemaRuleKind = "condition"
 )
+
+var (
+	schemaRuleKindFromKafka = map[sr.SchemaRuleKind]SchemaRuleKind{
+		sr.SchemaRuleKindTransform: SchemaRuleKindTransform,
+		sr.SchemaRuleKindCondition: SchemaRuleKindCondition,
+	}
+	schemaRuleKindToKafka = map[SchemaRuleKind]sr.SchemaRuleKind{
+		SchemaRuleKindTransform: sr.SchemaRuleKindTransform,
+		SchemaRuleKindCondition: sr.SchemaRuleKindCondition,
+	}
+)
+
+func (s SchemaRuleKind) ToKafka() sr.SchemaRuleKind {
+	return schemaRuleKindToKafka[s]
+}
+
+func SchemaRuleKindFromKafka(s sr.SchemaRuleKind) SchemaRuleKind {
+	return schemaRuleKindFromKafka[s]
+}
 
 // SchemaRuleMode specifies a schema rule's mode.
 //
@@ -166,6 +134,33 @@ const (
 	SchemaRuleModeWriteRead SchemaRuleMode = "writeread"
 )
 
+var (
+	schemaRuleModeFromKafka = map[sr.SchemaRuleMode]SchemaRuleMode{
+		sr.SchemaRuleModeUpgrade:   SchemaRuleModeUpgrade,
+		sr.SchemaRuleModeDowngrade: SchemaRuleModeDowngrade,
+		sr.SchemaRuleModeUpdown:    SchemaRuleModeUpdown,
+		sr.SchemaRuleModeWrite:     SchemaRuleModeWrite,
+		sr.SchemaRuleModeRead:      SchemaRuleModeRead,
+		sr.SchemaRuleModeWriteRead: SchemaRuleModeWriteRead,
+	}
+	schemaRuleModeToKafka = map[SchemaRuleMode]sr.SchemaRuleMode{
+		SchemaRuleModeUpgrade:   sr.SchemaRuleModeUpgrade,
+		SchemaRuleModeDowngrade: sr.SchemaRuleModeDowngrade,
+		SchemaRuleModeUpdown:    sr.SchemaRuleModeUpdown,
+		SchemaRuleModeWrite:     sr.SchemaRuleModeWrite,
+		SchemaRuleModeRead:      sr.SchemaRuleModeRead,
+		SchemaRuleModeWriteRead: sr.SchemaRuleModeWriteRead,
+	}
+)
+
+func (s SchemaRuleMode) ToKafka() sr.SchemaRuleMode {
+	return schemaRuleModeToKafka[s]
+}
+
+func SchemaRuleModeFromKafka(s sr.SchemaRuleMode) SchemaRuleMode {
+	return schemaRuleModeFromKafka[s]
+}
+
 // +kubebuilder:validation:Enum=None;Backward;BackwardTransitive;Forward;ForwardTransitive;Full;FullTransitive
 type CompatibilityLevel string
 
@@ -178,10 +173,6 @@ const (
 	CompatabilityLevelFull               CompatibilityLevel = "Full"
 	CompatabilityLevelFullTransitive     CompatibilityLevel = "FullTransitive"
 )
-
-func (c CompatibilityLevel) ToKafka() sr.CompatibilityLevel {
-	return compatibilityLevelsToKafka[c]
-}
 
 var (
 	compatibilityLevelsFromKafka = map[sr.CompatibilityLevel]CompatibilityLevel{
@@ -203,6 +194,14 @@ var (
 		CompatabilityLevelFullTransitive:     sr.CompatFullTransitive,
 	}
 )
+
+func (c CompatibilityLevel) ToKafka() sr.CompatibilityLevel {
+	return compatibilityLevelsToKafka[c]
+}
+
+func CompatibilityLevelFromKafka(c sr.CompatibilityLevel) CompatibilityLevel {
+	return compatibilityLevelsFromKafka[c]
+}
 
 // SchemaSpec defines the configuration of a Redpanda schema.
 type SchemaSpec struct {
@@ -234,15 +233,18 @@ type SchemaSpec struct {
 	CompatibilityLevel *CompatibilityLevel `json:"compatibilityLevel,omitempty"`
 }
 
-func (s *SchemaSpec) MatchesCompatibility(c sr.CompatibilityLevel) bool {
-	return compatibilityLevelsFromKafka[c] == s.GetCompatibilityLevel()
-}
-
 func (s *SchemaSpec) GetCompatibilityLevel() CompatibilityLevel {
 	if s.CompatibilityLevel == nil {
 		return CompatabilityLevelBackward
 	}
 	return *s.CompatibilityLevel
+}
+
+func (s *SchemaSpec) GetType() SchemaType {
+	if s.Type == nil {
+		return SchemaTypeAvro
+	}
+	return *s.Type
 }
 
 // SchemaReference is a way for a one schema to reference another. The
@@ -253,6 +255,26 @@ type SchemaReference struct {
 	Name    string `json:"name"`
 	Subject string `json:"subject"`
 	Version int    `json:"version"`
+}
+
+func (s *SchemaReference) ToKafka() sr.SchemaReference {
+	return sr.SchemaReference{
+		Name:    s.Name,
+		Subject: s.Subject,
+		Version: s.Version,
+	}
+}
+
+func SchemaReferenceToKafka(s SchemaReference) sr.SchemaReference {
+	return s.ToKafka()
+}
+
+func SchemaReferenceFromKafka(s sr.SchemaReference) SchemaReference {
+	return SchemaReference{
+		Name:    s.Name,
+		Subject: s.Subject,
+		Version: s.Version,
+	}
 }
 
 // SchemaRule specifies integrity constraints or data policies in a
@@ -268,7 +290,7 @@ type SchemaRule struct {
 	// Kind is the type of rule.
 	//
 	// +kubebuilder:default=transform
-	Kind SchemaRuleKind `json:"kind,omitempty"`
+	Kind *SchemaRuleKind `json:"kind,omitempty"`
 	// Mode is the mode of the rule.
 	//
 	// +kubebuilder:default=upgrade
@@ -289,10 +311,86 @@ type SchemaRule struct {
 	Disabled bool `json:"disabled,omitempty"`
 }
 
+func (s *SchemaRule) ToKafka() sr.SchemaRule {
+	return sr.SchemaRule{
+		Name:      s.Name,
+		Doc:       s.Doc,
+		Kind:      s.GetKind().ToKafka(),
+		Mode:      s.GetMode().ToKafka(),
+		Type:      s.Type,
+		Tags:      s.Tags,
+		Params:    s.Params,
+		Expr:      s.Expr,
+		OnSuccess: s.OnSuccess,
+		OnFailure: s.OnFailure,
+		Disabled:  s.Disabled,
+	}
+}
+
+func SchemaRuleToKafka(s SchemaRule) sr.SchemaRule {
+	return s.ToKafka()
+}
+
+func SchemaRuleFromKafka(s sr.SchemaRule) SchemaRule {
+	return SchemaRule{
+		Name:      s.Name,
+		Doc:       s.Doc,
+		Kind:      ptr.To(SchemaRuleKindFromKafka(s.Kind)),
+		Mode:      ptr.To(SchemaRuleModeFromKafka(s.Mode)),
+		Type:      s.Type,
+		Tags:      s.Tags,
+		Params:    s.Params,
+		Expr:      s.Expr,
+		OnSuccess: s.OnSuccess,
+		OnFailure: s.OnFailure,
+		Disabled:  s.Disabled,
+	}
+}
+
+func (r *SchemaRule) GetKind() SchemaRuleKind {
+	if r.Kind == nil {
+		return SchemaRuleKindTransform
+	}
+	return *r.Kind
+}
+
+func (r *SchemaRule) GetMode() SchemaRuleMode {
+	if r.Mode == nil {
+		return SchemaRuleModeUpgrade
+	}
+	return *r.Mode
+}
+
 // SchemaRuleSet groups migration rules and domain validation rules.
 type SchemaRuleSet struct {
 	MigrationRules []SchemaRule `json:"migrationRules,omitempty"`
 	DomainRules    []SchemaRule `json:"domainRules,omitempty"`
+}
+
+func (s *SchemaRuleSet) ToKafka() *sr.SchemaRuleSet {
+	if s == nil {
+		return nil
+	}
+
+	return &sr.SchemaRuleSet{
+		MigrationRules: functional.MapFn(SchemaRuleToKafka, s.MigrationRules),
+		DomainRules:    functional.MapFn(SchemaRuleToKafka, s.DomainRules),
+	}
+}
+
+func SchemaRuleSetToKafka(s *SchemaRuleSet) *sr.SchemaRuleSet {
+	return s.ToKafka()
+}
+
+func SchemaRuleSetFromKafka(s *sr.SchemaRuleSet) *SchemaRuleSet {
+	if s == nil {
+		return nil
+	}
+
+	return &SchemaRuleSet{
+		MigrationRules: functional.MapFn(SchemaRuleFromKafka, s.MigrationRules),
+		DomainRules:    functional.MapFn(SchemaRuleFromKafka, s.DomainRules),
+	}
 }
 
 // SchemaMetadata is arbitrary information about the schema or its
@@ -302,6 +400,34 @@ type SchemaMetadata struct {
 	Tags       map[string][]string `json:"tags,omitempty"`
 	Properties map[string]string   `json:"properties,omitempty"`
 	Sensitive  []string            `json:"sensitive,omitempty"`
+}
+
+func (s *SchemaMetadata) ToKafka() *sr.SchemaMetadata {
+	if s == nil {
+		return nil
+	}
+
+	return &sr.SchemaMetadata{
+		Tags:       s.Tags,
+		Properties: s.Properties,
+		Sensitive:  s.Sensitive,
+	}
+}
+
+func SchemaMetadataToKafka(s *SchemaMetadata) *sr.SchemaMetadata {
+	return s.ToKafka()
+}
+
+func SchemaMetadataFromKafka(s *sr.SchemaMetadata) *SchemaMetadata {
+	if s == nil {
+		return nil
+	}
+
+	return &SchemaMetadata{
+		Tags:       s.Tags,
+		Properties: s.Properties,
+		Sensitive:  s.Sensitive,
+	}
 }
 
 // SchemaStatus defines the observed state of a Redpanda schema.

@@ -22,7 +22,6 @@ import (
 	internalclient "github.com/redpanda-data/redpanda-operator/operator/pkg/client"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/kubernetes"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/utils"
-	"github.com/twmb/franz-go/pkg/sr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -66,61 +65,21 @@ func (r *SchemaReconciler) SyncResource(ctx context.Context, request ResourceReq
 	}
 
 	versions := schema.Status.Versions
-	client, err := request.factory.SchemaRegistryClient(ctx, schema)
+	syncer, err := request.factory.Schemas(ctx, schema)
 	if err != nil {
 		return createPatch(err, versions)
 	}
 
-	dirty := true
-	if len(schema.Status.Versions) > 0 {
-		subjectSchema, err := client.SchemaByVersion(ctx, schema.Name, -1)
-		if err != nil {
-			return createPatch(err, versions)
-		}
-		dirty = !schema.Matches(&subjectSchema)
-
-		results := client.Compatibility(ctx, schema.Name)
-		if len(results) > 0 {
-			result := results[0]
-			if err := result.Err; err != nil {
-				return createPatch(err, versions)
-			}
-			if !schema.Spec.MatchesCompatibility(result.Level) {
-				client.SetCompatibility(ctx, sr.SetCompatibility{
-					Level: schema.Spec.GetCompatibilityLevel().ToKafka(),
-				}, schema.Name)
-			}
-		}
-	}
-
-	versions = schema.Status.Versions
-	if dirty {
-		subjectSchema, err := client.CreateSchema(ctx, schema.Name, schema.ToKafka())
-		if err != nil {
-			return createPatch(err, versions)
-		}
-		versions = append(versions, subjectSchema.Version)
-	}
-
-	return createPatch(nil, versions)
+	versions, err = syncer.Sync(ctx, schema)
+	return createPatch(err, versions)
 }
 
 func (r *SchemaReconciler) DeleteResource(ctx context.Context, request ResourceRequest[*redpandav1alpha2.Schema]) error {
-	schema := request.object
-
-	client, err := request.factory.SchemaRegistryClient(ctx, schema)
+	syncer, err := request.factory.Schemas(ctx, request.object)
 	if err != nil {
-		return ignoreAllConnectionErrors(request.logger, err)
+		return err
 	}
-
-	if _, err := client.DeleteSubject(ctx, schema.Name, sr.SoftDelete); err != nil {
-		return ignoreAllConnectionErrors(request.logger, err)
-	}
-	if _, err := client.DeleteSubject(ctx, schema.Name, sr.HardDelete); err != nil {
-		return ignoreAllConnectionErrors(request.logger, err)
-	}
-
-	return nil
+	return syncer.Delete(ctx, request.object)
 }
 
 func SetupSchemaController(ctx context.Context, mgr ctrl.Manager) error {
