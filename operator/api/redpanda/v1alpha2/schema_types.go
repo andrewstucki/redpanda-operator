@@ -202,6 +202,44 @@ const (
 	SchemaRuleModeWriteRead SchemaRuleMode = "writeread"
 )
 
+// +kubebuilder:validation:Enum=None;Backward;BackwardTransitive;Forward;ForwardTransitive;Full;FullTransitive
+type CompatibilityLevel string
+
+const (
+	CompatabilityLevelNone               CompatibilityLevel = "None"
+	CompatabilityLevelBackward           CompatibilityLevel = "Backward"
+	CompatabilityLevelBackwardTransitive CompatibilityLevel = "BackwardTransitive"
+	CompatabilityLevelForward            CompatibilityLevel = "Forward"
+	CompatabilityLevelForwardTransitive  CompatibilityLevel = "ForwardTransitive"
+	CompatabilityLevelFull               CompatibilityLevel = "Full"
+	CompatabilityLevelFullTransitive     CompatibilityLevel = "FullTransitive"
+)
+
+func (c CompatibilityLevel) ToKafka() sr.CompatibilityLevel {
+	return compatibilityLevelsToKafka[c]
+}
+
+var (
+	compatibilityLevelsFromKafka = map[sr.CompatibilityLevel]CompatibilityLevel{
+		sr.CompatNone:               CompatabilityLevelNone,
+		sr.CompatBackward:           CompatabilityLevelBackward,
+		sr.CompatBackwardTransitive: CompatabilityLevelBackwardTransitive,
+		sr.CompatForward:            CompatabilityLevelForward,
+		sr.CompatForwardTransitive:  CompatabilityLevelForwardTransitive,
+		sr.CompatFull:               CompatabilityLevelFull,
+		sr.CompatFullTransitive:     CompatabilityLevelFullTransitive,
+	}
+	compatibilityLevelsToKafka = map[CompatibilityLevel]sr.CompatibilityLevel{
+		CompatabilityLevelNone:               sr.CompatNone,
+		CompatabilityLevelBackward:           sr.CompatBackward,
+		CompatabilityLevelBackwardTransitive: sr.CompatBackwardTransitive,
+		CompatabilityLevelForward:            sr.CompatForward,
+		CompatabilityLevelForwardTransitive:  sr.CompatForwardTransitive,
+		CompatabilityLevelFull:               sr.CompatFull,
+		CompatabilityLevelFullTransitive:     sr.CompatFullTransitive,
+	}
+)
+
 // SchemaSpec defines the configuration of a Redpanda schema.
 type SchemaSpec struct {
 	// ClusterSource is a reference to the cluster hosting the schema registry.
@@ -210,6 +248,7 @@ type SchemaSpec struct {
 	// +kubebuilder:validation:XValidation:message="spec.cluster.staticConfiguration.schemaRegistry: required value",rule=`!has(self.staticConfiguration) || has(self.staticConfiguration.schemaRegistry)`
 	ClusterSource *ClusterSource `json:"cluster"`
 	// Text is the actual unescaped text of a schema.
+	// +required
 	Text string `json:"text"`
 	// Type is the type of a schema. The default type is avro.
 	//
@@ -225,6 +264,21 @@ type SchemaSpec struct {
 
 	// SchemaRuleSet is a set of rules that govern the schema.
 	SchemaRuleSet *SchemaRuleSet `json:"ruleSet,omitempty"`
+
+	// CompatibilityLevel sets the compatibility level for the given schema
+	// +kubebuilder:default=Backward
+	CompatibilityLevel *CompatibilityLevel `json:"compatibilityLevel,omitempty"`
+}
+
+func (s *SchemaSpec) MatchesCompatibility(c sr.CompatibilityLevel) bool {
+	return compatibilityLevelsFromKafka[c] == s.GetCompatibilityLevel()
+}
+
+func (s *SchemaSpec) GetCompatibilityLevel() CompatibilityLevel {
+	if s.CompatibilityLevel == nil {
+		return CompatabilityLevelBackward
+	}
+	return *s.CompatibilityLevel
 }
 
 // SchemaReference is a way for a one schema to reference another. The

@@ -18,12 +18,13 @@ import (
 // SchemaSpecApplyConfiguration represents an declarative configuration of the SchemaSpec type for use
 // with apply.
 type SchemaSpecApplyConfiguration struct {
-	ClusterSource  *ClusterSourceApplyConfiguration    `json:"cluster,omitempty"`
-	Text           *string                             `json:"text,omitempty"`
-	Type           *redpandav1alpha2.SchemaType        `json:"schemaType,omitempty"`
-	References     []SchemaReferenceApplyConfiguration `json:"references,omitempty"`
-	SchemaMetadata *SchemaMetadataApplyConfiguration   `json:"metadata,omitempty"`
-	SchemaRuleSet  *SchemaRuleSetApplyConfiguration    `json:"ruleSet,omitempty"`
+	ClusterSource      *ClusterSourceApplyConfiguration     `json:"cluster,omitempty"`
+	Text               *string                              `json:"text,omitempty"`
+	Type               *redpandav1alpha2.SchemaType         `json:"schemaType,omitempty"`
+	References         []SchemaReferenceApplyConfiguration  `json:"references,omitempty"`
+	SchemaMetadata     *SchemaMetadataApplyConfiguration    `json:"metadata,omitempty"`
+	SchemaRuleSet      *SchemaRuleSetApplyConfiguration     `json:"ruleSet,omitempty"`
+	CompatibilityLevel *redpandav1alpha2.CompatibilityLevel `json:"compatibilityLevel,omitempty"`
 }
 
 // SchemaSpecApplyConfiguration constructs an declarative configuration of the SchemaSpec type for use with
@@ -82,5 +83,13 @@ func (b *SchemaSpecApplyConfiguration) WithSchemaMetadata(value *SchemaMetadataA
 // If called multiple times, the SchemaRuleSet field is set to the value of the last call.
 func (b *SchemaSpecApplyConfiguration) WithSchemaRuleSet(value *SchemaRuleSetApplyConfiguration) *SchemaSpecApplyConfiguration {
 	b.SchemaRuleSet = value
+	return b
+}
+
+// WithCompatibilityLevel sets the CompatibilityLevel field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CompatibilityLevel field is set to the value of the last call.
+func (b *SchemaSpecApplyConfiguration) WithCompatibilityLevel(value redpandav1alpha2.CompatibilityLevel) *SchemaSpecApplyConfiguration {
+	b.CompatibilityLevel = &value
 	return b
 }

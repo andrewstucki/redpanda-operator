@@ -78,6 +78,19 @@ func (r *SchemaReconciler) SyncResource(ctx context.Context, request ResourceReq
 			return createPatch(err, versions)
 		}
 		dirty = !schema.Matches(&subjectSchema)
+
+		results := client.Compatibility(ctx, schema.Name)
+		if len(results) > 0 {
+			result := results[0]
+			if err := result.Err; err != nil {
+				return createPatch(err, versions)
+			}
+			if !schema.Spec.MatchesCompatibility(result.Level) {
+				client.SetCompatibility(ctx, sr.SetCompatibility{
+					Level: schema.Spec.GetCompatibilityLevel().ToKafka(),
+				}, schema.Name)
+			}
+		}
 	}
 
 	versions = schema.Status.Versions

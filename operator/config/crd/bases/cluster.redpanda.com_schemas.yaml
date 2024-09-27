@@ -529,6 +529,19 @@ spec:
                   rule: has(self.clusterRef) || has(self.staticConfiguration)
                 - message: ClusterSource is immutable
                   rule: self == oldSelf
+              compatibilityLevel:
+                default: Backward
+                description: CompatibilityLevel sets the compatibility level for the
+                  given schema
+                enum:
+                - None
+                - Backward
+                - BackwardTransitive
+                - Forward
+                - ForwardTransitive
+                - Full
+                - FullTransitive
+                type: string
               metadata:
                 description: SchemaMetadata is arbitrary information about the schema.
                 properties:
