@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/functional"
 	"github.com/twmb/franz-go/pkg/kmsg"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -514,5 +515,5 @@ type UserList struct {
 }
 
 func (u *UserList) GetItems() []*User {
-	return mapFn(ptr.To, u.Items)
+	return functional.MapFn(ptr.To, u.Items)
 }

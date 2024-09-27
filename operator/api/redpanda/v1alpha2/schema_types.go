@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/functional"
 	"github.com/twmb/franz-go/pkg/sr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -58,17 +59,17 @@ func (s *Schema) Matches(schema *sr.SubjectSchema) bool {
 	}
 
 	// references
-	if !compareConvertibleSlices(s.Spec.References, schema.References, func(a SchemaReference, b sr.SchemaReference) bool {
+	if !functional.CompareConvertibleSlices(s.Spec.References, schema.References, func(a SchemaReference, b sr.SchemaReference) bool {
 		return false
 	}) {
 		return false
 	}
 
 	// metadata
-	if !compareMaps(s.Spec.SchemaMetadata.Properties, schema.SchemaMetadata.Properties) {
+	if !functional.CompareMaps(s.Spec.SchemaMetadata.Properties, schema.SchemaMetadata.Properties) {
 		return false
 	}
-	if !compareMapsFn(s.Spec.SchemaMetadata.Tags, schema.SchemaMetadata.Tags, slices.Equal) {
+	if !functional.CompareMapsFn(s.Spec.SchemaMetadata.Tags, schema.SchemaMetadata.Tags, slices.Equal) {
 		return false
 	}
 	if !slices.Equal(s.Spec.SchemaMetadata.Sensitive, schema.SchemaMetadata.Sensitive) {
@@ -76,12 +77,12 @@ func (s *Schema) Matches(schema *sr.SubjectSchema) bool {
 	}
 
 	// rule set
-	if !compareConvertibleSlices(s.Spec.SchemaRuleSet.DomainRules, schema.SchemaRuleSet.DomainRules, func(a SchemaRule, b sr.SchemaRule) bool {
+	if !functional.CompareConvertibleSlices(s.Spec.SchemaRuleSet.DomainRules, schema.SchemaRuleSet.DomainRules, func(a SchemaRule, b sr.SchemaRule) bool {
 		return false
 	}) {
 		return false
 	}
-	if !compareConvertibleSlices(s.Spec.SchemaRuleSet.MigrationRules, schema.SchemaRuleSet.MigrationRules, func(a SchemaRule, b sr.SchemaRule) bool {
+	if !functional.CompareConvertibleSlices(s.Spec.SchemaRuleSet.MigrationRules, schema.SchemaRuleSet.MigrationRules, func(a SchemaRule, b sr.SchemaRule) bool {
 		return false
 	}) {
 		return false
@@ -102,42 +103,6 @@ func (s *Schema) GetSchemaType() SchemaType {
 		return SchemaTypeAvro
 	}
 	return *s.Spec.Type
-}
-
-func compareMaps[T, U comparable](a, b map[T]U) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for key := range a {
-		if a[key] != b[key] {
-			return false
-		}
-	}
-	return true
-}
-
-func compareMapsFn[T comparable, U any](a, b map[T]U, fn func(U, U) bool) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for key := range a {
-		if !fn(a[key], b[key]) {
-			return false
-		}
-	}
-	return true
-}
-
-func compareConvertibleSlices[T, U any](a []T, b []U, fn func(T, U) bool) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := 0; i < len(a); i++ {
-		if !fn(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
 }
 
 var _ ClusterReferencingObject = (*Schema)(nil)
@@ -389,5 +354,5 @@ type SchemaList struct {
 }
 
 func (s *SchemaList) GetItems() []*Schema {
-	return mapFn(ptr.To, s.Items)
+	return functional.MapFn(ptr.To, s.Items)
 }

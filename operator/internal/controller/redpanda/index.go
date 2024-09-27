@@ -26,6 +26,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+type clientList[T client.Object] interface {
+	client.ObjectList
+	GetItems() []T
+}
+
 type clusterIndex struct {
 	object     client.Object
 	indexingFn func(o client.Object) []string
@@ -85,7 +90,7 @@ func indexByClusterSource(o client.Object) []string {
 	return clusters
 }
 
-func sourceClusters[T client.Object, U redpandav1alpha2.ClientList[T]](ctx context.Context, c client.Client, list U, name string, nn types.NamespacedName) ([]reconcile.Request, error) {
+func sourceClusters[T client.Object, U clientList[T]](ctx context.Context, c client.Client, list U, name string, nn types.NamespacedName) ([]reconcile.Request, error) {
 	err := c.List(ctx, list, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(clusterReferenceIndexName(name), nn.String()),
 	})
@@ -106,7 +111,7 @@ func sourceClusters[T client.Object, U redpandav1alpha2.ClientList[T]](ctx conte
 	return requests, nil
 }
 
-func enqueueFromSourceCluster[T client.Object, U redpandav1alpha2.ClientList[T]](mgr ctrl.Manager, name string, l U) handler.EventHandler {
+func enqueueFromSourceCluster[T client.Object, U clientList[T]](mgr ctrl.Manager, name string, l U) handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 		list := reflect.New(reflect.TypeOf(l).Elem()).Interface().(U)
 		requests, err := sourceClusters(ctx, mgr.GetClient(), list, "schema", client.ObjectKeyFromObject(o))

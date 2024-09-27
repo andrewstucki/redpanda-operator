@@ -55,17 +55,3 @@ type AuthorizedObject interface {
 	GetACLs() []ACLRule
 	GetPrincipal() string
 }
-
-// +kubebuilder:object:generate=false
-type ClientList[T client.Object] interface {
-	client.ObjectList
-	GetItems() []T
-}
-
-func mapFn[T any, U any](fn func(T) U, a []T) []U {
-	s := make([]U, len(a))
-	for i := 0; i < len(a); i++ {
-		s[i] = fn(a[i])
-	}
-	return s
-}
