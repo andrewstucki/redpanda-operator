@@ -10,8 +10,6 @@
 package schemas
 
 import (
-	"encoding/json"
-	"reflect"
 	"slices"
 
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
@@ -27,6 +25,7 @@ type schema struct {
 	References         []sr.SchemaReference
 	SchemaMetadata     *sr.SchemaMetadata
 	SchemaRuleSet      *sr.SchemaRuleSet
+	Hash               string
 }
 
 func (s *schema) toKafka() sr.Schema {
@@ -39,7 +38,11 @@ func (s *schema) toKafka() sr.Schema {
 	}
 }
 
-func schemaFromV1Alpha2Schema(s *redpandav1alpha2.Schema) *schema {
+func schemaFromV1Alpha2Schema(s *redpandav1alpha2.Schema) (*schema, error) {
+	hash, err := s.Spec.SchemaHash()
+	if err != nil {
+		return nil, err
+	}
 	return &schema{
 		Subject:            s.Name,
 		CompatibilityLevel: s.Spec.GetCompatibilityLevel().ToKafka(),
@@ -48,10 +51,11 @@ func schemaFromV1Alpha2Schema(s *redpandav1alpha2.Schema) *schema {
 		References:         functional.MapFn(redpandav1alpha2.SchemaReferenceToKafka, s.Spec.References),
 		SchemaMetadata:     s.Spec.SchemaMetadata.ToKafka(),
 		SchemaRuleSet:      s.Spec.SchemaRuleSet.ToKafka(),
-	}
+		Hash:               hash,
+	}, nil
 }
 
-func schemaFromRedpandaSubjectSchema(s *sr.SubjectSchema, compatibility sr.CompatibilityLevel) *schema {
+func schemaFromRedpandaSubjectSchema(s *sr.SubjectSchema, hash string, compatibility sr.CompatibilityLevel) *schema {
 	return &schema{
 		Subject:            s.Subject,
 		CompatibilityLevel: compatibility,
@@ -60,6 +64,7 @@ func schemaFromRedpandaSubjectSchema(s *sr.SubjectSchema, compatibility sr.Compa
 		References:         s.References,
 		SchemaMetadata:     s.SchemaMetadata,
 		SchemaRuleSet:      s.SchemaRuleSet,
+		Hash:               hash,
 	}
 }
 
@@ -67,51 +72,49 @@ func (s *schema) CompatibilityEquals(other *schema) bool {
 	return s.CompatibilityLevel == other.CompatibilityLevel
 }
 
-func (s *schema) SchemaEquals(other *schema) (bool, error) {
+func (s *schema) SchemaEquals(other *schema) bool {
 	// subject
 	if s.Subject != other.Subject {
-		return false, nil
+		return false
 	}
 
 	// type
 	if s.Type != other.Type {
-		return false, nil
+		return false
 	}
 
 	// schema
-	schemaEqual, err := jsonEqual(s.Schema, other.Schema)
-	if err != nil {
-		return false, err
-	}
-	if !schemaEqual {
-		return false, nil
+	// we cheat here, rather than trying to match the normalized schema in the cluster
+	// we instead just check to see if we've changed at all in the CRD
+	if s.Hash != other.Hash {
+		return false
 	}
 
 	// references
 	if !functional.CompareConvertibleSlices(s.References, other.References, schemaReferencesEqual) {
-		return false, nil
+		return false
 	}
 
 	// metadata
 	if !functional.CompareMaps(s.SchemaMetadata.Properties, other.SchemaMetadata.Properties) {
-		return false, nil
+		return false
 	}
 	if !functional.CompareMapsFn(s.SchemaMetadata.Tags, other.SchemaMetadata.Tags, slices.Equal) {
-		return false, nil
+		return false
 	}
 	if !slices.Equal(s.SchemaMetadata.Sensitive, other.SchemaMetadata.Sensitive) {
-		return false, nil
+		return false
 	}
 
 	// rule set
 	if !functional.CompareConvertibleSlices(s.SchemaRuleSet.DomainRules, other.SchemaRuleSet.DomainRules, schemaRulesEqual) {
-		return false, nil
+		return false
 	}
 	if !functional.CompareConvertibleSlices(s.SchemaRuleSet.MigrationRules, other.SchemaRuleSet.MigrationRules, schemaRulesEqual) {
-		return false, nil
+		return false
 	}
 
-	return true, nil
+	return true
 }
 
 func schemaReferencesEqual(a, b sr.SchemaReference) bool {
@@ -162,17 +165,4 @@ func schemaRulesEqual(a, b sr.SchemaRule) bool {
 		return false
 	}
 	return true
-}
-
-func jsonEqual(a, b string) (bool, error) {
-	var dataA, dataB map[string]any
-
-	if err := json.Unmarshal([]byte(a), &dataA); err != nil {
-		return false, err
-	}
-	if err := json.Unmarshal([]byte(b), &dataB); err != nil {
-		return false, err
-	}
-
-	return reflect.DeepEqual(dataA, dataB), nil
 }

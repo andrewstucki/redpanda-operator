@@ -826,6 +826,10 @@ spec:
                 description: Specifies the last observed generation.
                 format: int64
                 type: integer
+              schemaHash:
+                description: SchemaHash is the hashed value of the schema synced to
+                  the cluster
+                type: string
               versions:
                 description: Versions shows the versions of a given schema
                 items:

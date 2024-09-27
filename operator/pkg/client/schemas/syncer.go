@@ -30,9 +30,14 @@ func NewSyncer(client *sr.Client) *Syncer {
 }
 
 // Sync synchronizes the schema in Redpanda.
-func (s *Syncer) Sync(ctx context.Context, o *redpandav1alpha2.Schema) ([]int, error) {
+func (s *Syncer) Sync(ctx context.Context, o *redpandav1alpha2.Schema) (string, []int, error) {
 	versions := o.Status.Versions
-	want := schemaFromV1Alpha2Schema(o)
+	hash := o.Status.SchemaHash
+
+	want, err := schemaFromV1Alpha2Schema(o)
+	if err != nil {
+		return hash, versions, err
+	}
 
 	// default to creating the schema
 	createSchema := true
@@ -42,33 +47,29 @@ func (s *Syncer) Sync(ctx context.Context, o *redpandav1alpha2.Schema) ([]int, e
 	if !s.isInitial(o) {
 		have, err := s.getLatest(ctx, o)
 		if err != nil {
-			return versions, err
-		}
-
-		schemaEqual, err := have.SchemaEquals(want)
-		if err != nil {
-			return versions, err
+			return hash, versions, err
 		}
 
 		setCompatibility = !have.CompatibilityEquals(want)
-		createSchema = !schemaEqual
+		createSchema = !have.SchemaEquals(want)
 	}
 
 	if setCompatibility {
 		if err := s.setCompatibility(ctx, want); err != nil {
-			return versions, err
+			return hash, versions, err
 		}
 	}
 
 	if createSchema {
 		subjectSchema, err := s.client.CreateSchema(ctx, o.Name, want.toKafka())
 		if err != nil {
-			return versions, err
+			return hash, versions, err
 		}
+		hash = want.Hash
 		versions = append(versions, subjectSchema.Version)
 	}
 
-	return versions, nil
+	return hash, versions, nil
 }
 
 func (s *Syncer) isInitial(o *redpandav1alpha2.Schema) bool {
@@ -106,7 +107,7 @@ func (s *Syncer) getLatest(ctx context.Context, o *redpandav1alpha2.Schema) (*sc
 		compatibility = result.Level
 	}
 
-	return schemaFromRedpandaSubjectSchema(&subjectSchema, compatibility), nil
+	return schemaFromRedpandaSubjectSchema(&subjectSchema, o.Status.SchemaHash, compatibility), nil
 }
 
 // Delete removes the schema in Redpanda.

@@ -21,6 +21,7 @@ type SchemaStatusApplyConfiguration struct {
 	ObservedGeneration *int64                           `json:"observedGeneration,omitempty"`
 	Conditions         []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	Versions           []int                            `json:"versions,omitempty"`
+	SchemaHash         *string                          `json:"schemaHash,omitempty"`
 }
 
 // SchemaStatusApplyConfiguration constructs an declarative configuration of the SchemaStatus type for use with
@@ -57,5 +58,13 @@ func (b *SchemaStatusApplyConfiguration) WithVersions(values ...int) *SchemaStat
 	for i := range values {
 		b.Versions = append(b.Versions, values[i])
 	}
+	return b
+}
+
+// WithSchemaHash sets the SchemaHash field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SchemaHash field is set to the value of the last call.
+func (b *SchemaStatusApplyConfiguration) WithSchemaHash(value string) *SchemaStatusApplyConfiguration {
+	b.SchemaHash = &value
 	return b
 }

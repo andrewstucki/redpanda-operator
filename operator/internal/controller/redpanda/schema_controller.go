@@ -46,7 +46,7 @@ func (r *SchemaReconciler) FinalizerPatch(request ResourceRequest[*redpandav1alp
 
 func (r *SchemaReconciler) SyncResource(ctx context.Context, request ResourceRequest[*redpandav1alpha2.Schema]) (client.Patch, error) {
 	schema := request.object
-	createPatch := func(err error, versions []int) (client.Patch, error) {
+	createPatch := func(err error, hash string, versions []int) (client.Patch, error) {
 		var syncCondition metav1.Condition
 		config := redpandav1alpha2ac.Schema(schema.Name, schema.Namespace)
 
@@ -59,19 +59,21 @@ func (r *SchemaReconciler) SyncResource(ctx context.Context, request ResourceReq
 		return kubernetes.ApplyPatch(config.WithStatus(redpandav1alpha2ac.SchemaStatus().
 			WithObservedGeneration(schema.Generation).
 			WithVersions(versions...).
+			WithSchemaHash(hash).
 			WithConditions(utils.StatusConditionConfigs(schema.Status.Conditions, schema.Generation, []metav1.Condition{
 				syncCondition,
 			})...))), err
 	}
 
+	hash := schema.Status.SchemaHash
 	versions := schema.Status.Versions
 	syncer, err := request.factory.Schemas(ctx, schema)
 	if err != nil {
-		return createPatch(err, versions)
+		return createPatch(err, hash, versions)
 	}
 
-	versions, err = syncer.Sync(ctx, schema)
-	return createPatch(err, versions)
+	hash, versions, err = syncer.Sync(ctx, schema)
+	return createPatch(err, hash, versions)
 }
 
 func (r *SchemaReconciler) DeleteResource(ctx context.Context, request ResourceRequest[*redpandav1alpha2.Schema]) error {

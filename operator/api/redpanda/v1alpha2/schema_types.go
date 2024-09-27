@@ -10,6 +10,9 @@
 package v1alpha2
 
 import (
+	"fmt"
+	"hash/fnv"
+
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/functional"
 	"github.com/twmb/franz-go/pkg/sr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -234,6 +237,14 @@ type SchemaSpec struct {
 	CompatibilityLevel *CompatibilityLevel `json:"compatibilityLevel,omitempty"`
 }
 
+func (s *SchemaSpec) SchemaHash() (string, error) {
+	hasher := fnv.New32()
+	if _, err := hasher.Write([]byte(s.Text)); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+}
+
 func (s *SchemaSpec) GetCompatibilityLevel() CompatibilityLevel {
 	if s.CompatibilityLevel == nil {
 		return CompatabilityLevelBackward
@@ -439,6 +450,8 @@ type SchemaStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// Versions shows the versions of a given schema
 	Versions []int `json:"versions,omitempty"`
+	// SchemaHash is the hashed value of the schema synced to the cluster
+	SchemaHash string `json:"schemaHash,omitempty"`
 }
 
 // SchemaList contains a list of Redpanda schema objects.
