@@ -18,21 +18,21 @@ Feature: Schema CRDs
             clusterRef:
                 name: basic
         text: |
-        {
-			"type": "record",
-			"name": "test",
-			"fields":
-			[
-				{
-					"type": "string",
-					"name": "field1"
-				},
-				{
-					"type": "int",
-					"name": "field2"
-				}
-			]
-		}
+            {
+                "type": "record",
+                "name": "test",
+                "fields":
+                [
+                    {
+                        "type": "string",
+                        "name": "field1"
+                    },
+                    {
+                        "type": "int",
+                        "name": "field2"
+                    }
+                ]
+            }
     """
     And schema "schema1" is successfully synced
     Then I should be able to check compatibility against "schema1" in cluster "basic"

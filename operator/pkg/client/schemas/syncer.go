@@ -36,6 +36,8 @@ func (s *Syncer) Sync(ctx context.Context, o *redpandav1alpha2.Schema) ([]int, e
 
 	// default to creating the schema
 	createSchema := true
+	// default to setting compatibilty for the schema subject
+	setCompatibility := true
 
 	if !s.isInitial(o) {
 		have, err := s.getLatest(ctx, o)
@@ -43,21 +45,19 @@ func (s *Syncer) Sync(ctx context.Context, o *redpandav1alpha2.Schema) ([]int, e
 			return versions, err
 		}
 
-		// only update the compatibility level
-		// when we already have an initial schema created
-		if !have.CompatibilityEquals(want) {
-			results := s.client.SetCompatibility(ctx, sr.SetCompatibility{
-				Level: want.CompatibilityLevel,
-			}, want.Subject)
-			if len(results) == 0 {
-				return versions, errors.New("empty results returned from syncing compatability levels")
-			}
-			if err := results[0].Err; err != nil {
-				return versions, err
-			}
+		schemaEqual, err := have.SchemaEquals(want)
+		if err != nil {
+			return versions, err
 		}
 
-		createSchema = !have.SchemaEquals(want)
+		setCompatibility = !have.CompatibilityEquals(want)
+		createSchema = !schemaEqual
+	}
+
+	if setCompatibility {
+		if err := s.setCompatibility(ctx, want); err != nil {
+			return versions, err
+		}
 	}
 
 	if createSchema {
@@ -72,7 +72,21 @@ func (s *Syncer) Sync(ctx context.Context, o *redpandav1alpha2.Schema) ([]int, e
 }
 
 func (s *Syncer) isInitial(o *redpandav1alpha2.Schema) bool {
-	return len(o.Status.Versions) > 0
+	return len(o.Status.Versions) == 0
+}
+
+func (s *Syncer) setCompatibility(ctx context.Context, sc *schema) error {
+	results := s.client.SetCompatibility(ctx, sr.SetCompatibility{
+		Level: sc.CompatibilityLevel,
+	}, sc.Subject)
+	if len(results) == 0 {
+		return errors.New("empty results returned from syncing compatability levels")
+	}
+	if err := results[0].Err; err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Syncer) getLatest(ctx context.Context, o *redpandav1alpha2.Schema) (*schema, error) {

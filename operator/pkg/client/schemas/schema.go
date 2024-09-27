@@ -10,6 +10,8 @@
 package schemas
 
 import (
+	"encoding/json"
+	"reflect"
 	"slices"
 
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
@@ -65,47 +67,51 @@ func (s *schema) CompatibilityEquals(other *schema) bool {
 	return s.CompatibilityLevel == other.CompatibilityLevel
 }
 
-func (s *schema) SchemaEquals(other *schema) bool {
+func (s *schema) SchemaEquals(other *schema) (bool, error) {
 	// subject
 	if s.Subject != other.Subject {
-		return false
+		return false, nil
 	}
 
 	// type
 	if s.Type != other.Type {
-		return false
+		return false, nil
 	}
 
 	// schema
-	if s.Schema != other.Schema {
-		return false
+	schemaEqual, err := jsonEqual(s.Schema, other.Schema)
+	if err != nil {
+		return false, err
+	}
+	if !schemaEqual {
+		return false, nil
 	}
 
 	// references
 	if !functional.CompareConvertibleSlices(s.References, other.References, schemaReferencesEqual) {
-		return false
+		return false, nil
 	}
 
 	// metadata
 	if !functional.CompareMaps(s.SchemaMetadata.Properties, other.SchemaMetadata.Properties) {
-		return false
+		return false, nil
 	}
 	if !functional.CompareMapsFn(s.SchemaMetadata.Tags, other.SchemaMetadata.Tags, slices.Equal) {
-		return false
+		return false, nil
 	}
 	if !slices.Equal(s.SchemaMetadata.Sensitive, other.SchemaMetadata.Sensitive) {
-		return false
+		return false, nil
 	}
 
 	// rule set
 	if !functional.CompareConvertibleSlices(s.SchemaRuleSet.DomainRules, other.SchemaRuleSet.DomainRules, schemaRulesEqual) {
-		return false
+		return false, nil
 	}
 	if !functional.CompareConvertibleSlices(s.SchemaRuleSet.MigrationRules, other.SchemaRuleSet.MigrationRules, schemaRulesEqual) {
-		return false
+		return false, nil
 	}
 
-	return true
+	return true, nil
 }
 
 func schemaReferencesEqual(a, b sr.SchemaReference) bool {
@@ -156,4 +162,17 @@ func schemaRulesEqual(a, b sr.SchemaRule) bool {
 		return false
 	}
 	return true
+}
+
+func jsonEqual(a, b string) (bool, error) {
+	var dataA, dataB map[string]any
+
+	if err := json.Unmarshal([]byte(a), &dataA); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal([]byte(b), &dataB); err != nil {
+		return false, err
+	}
+
+	return reflect.DeepEqual(dataA, dataB), nil
 }

@@ -1,3 +1,12 @@
+// Copyright 2024 Redpanda Data, Inc.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.md
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0
+
 package steps
 
 import (
@@ -18,9 +27,9 @@ func schemaIsSuccessfullySynced(ctx context.Context, t framework.TestingT, schem
 
 	// make sure it's synchronized
 	t.RequireCondition(metav1.Condition{
-		Type:   redpandav1alpha2.ReadyCondition,
+		Type:   redpandav1alpha2.ResourceConditionTypeSynced,
 		Status: metav1.ConditionTrue,
-		Reason: redpandav1alpha2.SucceededReason,
+		Reason: redpandav1alpha2.ResourceConditionReasonSynced,
 	}, schemaObject.Status.Conditions)
 }
 
