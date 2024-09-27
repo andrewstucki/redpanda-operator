@@ -42,6 +42,9 @@ type ResourceReconcilerTestEnvironment[T any, U Resource[T]] struct {
 	SyncedCondition            metav1.Condition
 	InvalidClusterRefCondition metav1.Condition
 	ClientErrorCondition       metav1.Condition
+	AdminURL                   string
+	KafkaURL                   string
+	SchemaRegistryURL          string
 }
 
 func InitializeResourceReconcilerTest[T any, U Resource[T]](t *testing.T, ctx context.Context, reconciler ResourceReconciler[U]) *ResourceReconcilerTestEnvironment[T, U] {
@@ -234,6 +237,9 @@ func InitializeResourceReconcilerTest[T any, U Resource[T]](t *testing.T, ctx co
 		SyncedCondition:            syncedClusterRefCondition,
 		InvalidClusterRefCondition: invalidClusterRefCondition,
 		ClientErrorCondition:       clientErrorCondition,
+		AdminURL:                   adminAPI,
+		KafkaURL:                   kafkaAddress,
+		SchemaRegistryURL:          schemaRegistry,
 	}
 }
 

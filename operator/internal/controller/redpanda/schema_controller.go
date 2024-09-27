@@ -15,8 +15,6 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	redpandav1alpha2ac "github.com/redpanda-data/redpanda-operator/operator/api/applyconfiguration/redpanda/v1alpha2"
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
@@ -118,19 +116,12 @@ func SetupSchemaController(ctx context.Context, mgr ctrl.Manager) error {
 	factory := internalclient.NewFactory(config, c)
 	controller := NewResourceController(c, factory, &SchemaReconciler{}, "SchemaReconciler")
 
-	if err := registerSchemaClusterIndex(ctx, mgr); err != nil {
+	if err := registerClusterIndex(ctx, mgr, "schema"); err != nil {
 		return err
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&redpandav1alpha2.Schema{}).
-		Watches(&redpandav1alpha2.Redpanda{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
-			requests, err := schemasForCluster(ctx, c, client.ObjectKeyFromObject(o))
-			if err != nil {
-				mgr.GetLogger().V(1).Info("possibly skipping schema reconciliation due to failure to fetch schemas associated with cluster", "error", err)
-				return nil
-			}
-			return requests
-		})).
+		Watches(&redpandav1alpha2.Redpanda{}, enqueueFromSourceCluster(mgr, "schema", &redpandav1alpha2.SchemaList{})).
 		Complete(controller)
 }

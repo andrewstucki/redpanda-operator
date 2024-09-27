@@ -119,10 +119,10 @@ type RedpandaReconciler struct {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RedpandaReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	if err := registerStatefulSetClusterIndex(ctx, mgr); err != nil {
+	if err := registerClusterIndex(ctx, mgr, "statefulset"); err != nil {
 		return err
 	}
-	if err := registerDeploymentClusterIndex(ctx, mgr); err != nil {
+	if err := registerClusterIndex(ctx, mgr, "deployment"); err != nil {
 		return err
 	}
 

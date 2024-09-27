@@ -15,6 +15,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/sr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 func init() {
@@ -322,4 +323,8 @@ type SchemaList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	// Specifies a list of Redpanda schema resources.
 	Items []Schema `json:"items"`
+}
+
+func (s *SchemaList) GetItems() []*Schema {
+	return mapFn(ptr.To, s.Items)
 }

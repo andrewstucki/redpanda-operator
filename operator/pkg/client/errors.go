@@ -11,7 +11,6 @@ package client
 
 import (
 	"errors"
-	"strings"
 
 	"github.com/redpanda-data/common-go/rpadmin"
 	"github.com/twmb/franz-go/pkg/kerr"
@@ -74,18 +73,6 @@ func IsTerminalClientError(err error) bool {
 
 	var srError *sr.ResponseError
 	if errors.As(err, &srError) {
-		// Current versions of Redpanda have an oddity with the way that they handle 404s
-		// for unsupported endpoints. Normal errors look like this:
-		// {"error_code":40101,"message":"Forbidden (authentication is required)"}
-		// 404s look like this
-		// {"message": "Not found", "code": 404}
-		//
-		// our first condition handles the latter, the second, the former
-
-		if strings.Contains(string(srError.Raw), "Not found") {
-			return true
-		}
-
 		// from https://github.com/redpanda-data/redpanda/blob/8a12c560f73773d2b5606d35f3b585c7af67ca82/src/v/pandaproxy/error.h#L70-L72
 		code := srError.ErrorCode / 100
 		if code >= 400 && code < 500 {

@@ -16,8 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-type StatusPatch interface {
-}
+const fieldOwner client.FieldOwner = "redpanda-operator"
+
 type Resource[T any] interface {
 	*T
 	client.Object

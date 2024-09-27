@@ -512,3 +512,7 @@ type UserList struct {
 	// Specifies a list of Redpanda user resources.
 	Items []User `json:"items"`
 }
+
+func (u *UserList) GetItems() []*User {
+	return mapFn(ptr.To, u.Items)
+}

@@ -11,6 +11,8 @@ package redpanda
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"slices"
 
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
@@ -20,47 +22,79 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const (
-	userClusterIndex        = "__user_referencing_cluster"
-	schemaClusterIndex      = "__schema_referencing_cluster"
-	deploymentClusterIndex  = "__deployment_referencing_cluster"
-	statefulsetClusterIndex = "__statefulset_referencing_cluster"
+type clusterIndex struct {
+	object     client.Object
+	indexingFn func(o client.Object) []string
+}
+
+var (
+	userClusterIndex        = clusterReferenceIndexName("user")
+	schemaClusterIndex      = clusterReferenceIndexName("schema")
+	deploymentClusterIndex  = clusterReferenceIndexName("deployment")
+	statefulsetClusterIndex = clusterReferenceIndexName("statefulset")
+
+	clusterIndices = map[string]*clusterIndex{
+		userClusterIndex: {
+			object:     &redpandav1alpha2.User{},
+			indexingFn: indexByClusterSource,
+		},
+		schemaClusterIndex: {
+			object:     &redpandav1alpha2.Schema{},
+			indexingFn: indexByClusterSource,
+		},
+		deploymentClusterIndex: {
+			object:     &appsv1.Deployment{},
+			indexingFn: indexHelmManagedObjectCluster,
+		},
+		statefulsetClusterIndex: {
+			object:     &appsv1.StatefulSet{},
+			indexingFn: indexHelmManagedObjectCluster,
+		},
+	}
 )
 
-func userCluster(user *redpandav1alpha2.User) types.NamespacedName {
-	return types.NamespacedName{Namespace: user.Namespace, Name: user.Spec.ClusterSource.ClusterRef.Name}
+func clusterReferenceIndexName(name string) string {
+	return fmt.Sprintf("__%s_referencing_cluster", name)
 }
 
-func registerUserClusterIndex(ctx context.Context, mgr ctrl.Manager) error {
-	return mgr.GetFieldIndexer().IndexField(ctx, &redpandav1alpha2.User{}, userClusterIndex, indexUserCluster)
+func registerClusterIndex(ctx context.Context, mgr ctrl.Manager, name string) error {
+	indexName := clusterReferenceIndexName(name)
+
+	index, ok := clusterIndices[indexName]
+	if !ok {
+		return fmt.Errorf("invalid cluster index: %q", name)
+	}
+
+	return mgr.GetFieldIndexer().IndexField(ctx, index.object, indexName, index.indexingFn)
 }
 
-func indexUserCluster(o client.Object) []string {
-	user := o.(*redpandav1alpha2.User)
-	source := user.Spec.ClusterSource
+func indexByClusterSource(o client.Object) []string {
+	clusterReferencingObject := o.(redpandav1alpha2.ClusterReferencingObject)
+	source := clusterReferencingObject.GetClusterSource()
 
 	clusters := []string{}
 	if source != nil && source.ClusterRef != nil {
-		clusters = append(clusters, userCluster(user).String())
+		cluster := types.NamespacedName{Namespace: clusterReferencingObject.GetNamespace(), Name: source.ClusterRef.Name}
+		clusters = append(clusters, cluster.String())
 	}
 
 	return clusters
 }
 
-func usersForCluster(ctx context.Context, c client.Client, nn types.NamespacedName) ([]reconcile.Request, error) {
-	childList := &redpandav1alpha2.UserList{}
-	err := c.List(ctx, childList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(userClusterIndex, nn.String()),
+func sourceClusters[T client.Object, U redpandav1alpha2.ClientList[T]](ctx context.Context, c client.Client, list U, name string, nn types.NamespacedName) ([]reconcile.Request, error) {
+	err := c.List(ctx, list, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(clusterReferenceIndexName(name), nn.String()),
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	requests := []reconcile.Request{}
-	for _, item := range childList.Items { //nolint:gocritic // this is necessary
+	for _, item := range list.GetItems() { //nolint:gocritic // this is necessary
 		requests = append(requests, reconcile.Request{
 			NamespacedName: types.NamespacedName{
 				Namespace: item.GetNamespace(),
@@ -72,54 +106,16 @@ func usersForCluster(ctx context.Context, c client.Client, nn types.NamespacedNa
 	return requests, nil
 }
 
-func schemaCluster(schema *redpandav1alpha2.Schema) types.NamespacedName {
-	return types.NamespacedName{Namespace: schema.Namespace, Name: schema.Spec.ClusterSource.ClusterRef.Name}
-}
-
-func registerSchemaClusterIndex(ctx context.Context, mgr ctrl.Manager) error {
-	return mgr.GetFieldIndexer().IndexField(ctx, &redpandav1alpha2.User{}, schemaClusterIndex, indexSchemaCluster)
-}
-
-func indexSchemaCluster(o client.Object) []string {
-	schema := o.(*redpandav1alpha2.Schema)
-	source := schema.Spec.ClusterSource
-
-	clusters := []string{}
-	if source != nil && source.ClusterRef != nil {
-		clusters = append(clusters, schemaCluster(schema).String())
-	}
-
-	return clusters
-}
-
-func schemasForCluster(ctx context.Context, c client.Client, nn types.NamespacedName) ([]reconcile.Request, error) {
-	childList := &redpandav1alpha2.SchemaList{}
-	err := c.List(ctx, childList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(schemaClusterIndex, nn.String()),
+func enqueueFromSourceCluster[T client.Object, U redpandav1alpha2.ClientList[T]](mgr ctrl.Manager, name string, l U) handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
+		list := reflect.New(reflect.TypeOf(l).Elem()).Interface().(U)
+		requests, err := sourceClusters(ctx, mgr.GetClient(), list, "schema", client.ObjectKeyFromObject(o))
+		if err != nil {
+			mgr.GetLogger().V(1).Info(fmt.Sprintf("possibly skipping %s reconciliation due to failure to fetch %s associated with cluster", name, name), "error", err)
+			return nil
+		}
+		return requests
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	requests := []reconcile.Request{}
-	for _, item := range childList.Items { //nolint:gocritic // this is necessary
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: item.GetNamespace(),
-				Name:      item.GetName(),
-			},
-		})
-	}
-
-	return requests, nil
-}
-
-func registerDeploymentClusterIndex(ctx context.Context, mgr ctrl.Manager) error {
-	return mgr.GetFieldIndexer().IndexField(ctx, &appsv1.Deployment{}, deploymentClusterIndex, indexHelmManagedObjectCluster)
-}
-
-func registerStatefulSetClusterIndex(ctx context.Context, mgr ctrl.Manager) error {
-	return mgr.GetFieldIndexer().IndexField(ctx, &appsv1.StatefulSet{}, statefulsetClusterIndex, indexHelmManagedObjectCluster)
 }
 
 func clusterForHelmManagedObject(o client.Object) (types.NamespacedName, bool) {

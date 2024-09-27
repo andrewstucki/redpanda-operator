@@ -547,11 +547,13 @@ func Run(
 			os.Exit(1)
 		}
 
-		if err = (&redpandacontrollers.UserReconciler{
-			Client:        mgr.GetClient(),
-			ClientFactory: factory,
-		}).SetupWithManager(ctx, mgr); err != nil {
+		if err = redpandacontrollers.SetupUserController(ctx, mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "User")
+			os.Exit(1)
+		}
+
+		if err = redpandacontrollers.SetupSchemaController(ctx, mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Schema")
 			os.Exit(1)
 		}
 
