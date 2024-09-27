@@ -16,6 +16,7 @@ import (
 	"slices"
 
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/functional"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,50 +32,24 @@ type clientList[T client.Object] interface {
 	GetItems() []T
 }
 
-type clusterIndex struct {
-	object     client.Object
-	indexingFn func(o client.Object) []string
-}
-
-var (
-	userClusterIndex        = clusterReferenceIndexName("user")
-	schemaClusterIndex      = clusterReferenceIndexName("schema")
-	deploymentClusterIndex  = clusterReferenceIndexName("deployment")
-	statefulsetClusterIndex = clusterReferenceIndexName("statefulset")
-
-	clusterIndices = map[string]*clusterIndex{
-		userClusterIndex: {
-			object:     &redpandav1alpha2.User{},
-			indexingFn: indexByClusterSource,
-		},
-		schemaClusterIndex: {
-			object:     &redpandav1alpha2.Schema{},
-			indexingFn: indexByClusterSource,
-		},
-		deploymentClusterIndex: {
-			object:     &appsv1.Deployment{},
-			indexingFn: indexHelmManagedObjectCluster,
-		},
-		statefulsetClusterIndex: {
-			object:     &appsv1.StatefulSet{},
-			indexingFn: indexHelmManagedObjectCluster,
-		},
-	}
-)
-
 func clusterReferenceIndexName(name string) string {
 	return fmt.Sprintf("__%s_referencing_cluster", name)
 }
 
-func registerClusterIndex(ctx context.Context, mgr ctrl.Manager, name string) error {
+func registerClusterSourceIndex[T client.Object, U clientList[T]](ctx context.Context, mgr ctrl.Manager, name string, o T, l U) (handler.EventHandler, error) {
 	indexName := clusterReferenceIndexName(name)
-
-	index, ok := clusterIndices[indexName]
-	if !ok {
-		return fmt.Errorf("invalid cluster index: %q", name)
+	if err := mgr.GetFieldIndexer().IndexField(ctx, o, indexName, indexByClusterSource); err != nil {
+		return nil, err
 	}
+	return enqueueFromSourceCluster(mgr, name, l), nil
+}
 
-	return mgr.GetFieldIndexer().IndexField(ctx, index.object, indexName, index.indexingFn)
+func registerHelmReferencedIndex[T client.Object](ctx context.Context, mgr ctrl.Manager, name string, o T) error {
+	indexName := clusterReferenceIndexName(name)
+	if err := mgr.GetFieldIndexer().IndexField(ctx, o, indexName, indexHelmManagedObjectCluster); err != nil {
+		return err
+	}
+	return nil
 }
 
 func indexByClusterSource(o client.Object) []string {
@@ -145,6 +120,15 @@ func clusterForHelmManagedObject(o client.Object) (types.NamespacedName, bool) {
 	}, true
 }
 
+func enqueueClusterFromHelmManagedObject() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
+		if nn, found := clusterForHelmManagedObject(o); found {
+			return []reconcile.Request{{NamespacedName: nn}}
+		}
+		return nil
+	})
+}
+
 func indexHelmManagedObjectCluster(o client.Object) []string {
 	nn, found := clusterForHelmManagedObject(o)
 	if !found {
@@ -167,13 +151,13 @@ func consoleDeploymentsForCluster(ctx context.Context, c client.Client, cluster 
 
 	deploymentList := &appsv1.DeploymentList{}
 	err := c.List(ctx, deploymentList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(deploymentClusterIndex, key),
+		FieldSelector: fields.OneTermEqualSelector(clusterReferenceIndexName("deployment"), key),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return mapFn(ptr.To, deploymentList.Items), nil
+	return functional.MapFn(ptr.To, deploymentList.Items), nil
 }
 
 func redpandaStatefulSetsForCluster(ctx context.Context, c client.Client, cluster *redpandav1alpha2.Redpanda) ([]*appsv1.StatefulSet, error) {
@@ -181,19 +165,11 @@ func redpandaStatefulSetsForCluster(ctx context.Context, c client.Client, cluste
 
 	ssList := &appsv1.StatefulSetList{}
 	err := c.List(ctx, ssList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(statefulsetClusterIndex, key),
+		FieldSelector: fields.OneTermEqualSelector(clusterReferenceIndexName("statefulset"), key),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return mapFn(ptr.To, ssList.Items), nil
-}
-
-func mapFn[T any, U any](fn func(T) U, a []T) []U {
-	s := make([]U, len(a))
-	for i := 0; i < len(a); i++ {
-		s[i] = fn(a[i])
-	}
-	return s
+	return functional.MapFn(ptr.To, ssList.Items), nil
 }

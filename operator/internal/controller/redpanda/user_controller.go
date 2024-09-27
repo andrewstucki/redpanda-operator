@@ -167,14 +167,15 @@ func SetupUserController(ctx context.Context, mgr ctrl.Manager) error {
 	factory := internalclient.NewFactory(config, c)
 	controller := NewResourceController(c, factory, &UserReconciler{}, "UserReconciler")
 
-	if err := registerClusterIndex(ctx, mgr, "user"); err != nil {
+	enqueueUser, err := registerClusterSourceIndex(ctx, mgr, "user", &redpandav1alpha2.User{}, &redpandav1alpha2.UserList{})
+	if err != nil {
 		return err
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&redpandav1alpha2.User{}).
 		Owns(&corev1.Secret{}).
-		Watches(&redpandav1alpha2.Redpanda{}, enqueueFromSourceCluster(mgr, "user", &redpandav1alpha2.UserList{})).
+		Watches(&redpandav1alpha2.Redpanda{}, enqueueUser).
 		// Every 5 minutes try and check to make sure no manual modifications
 		// happened on the resource synced to the cluster and attempt to correct
 		// any drift.
