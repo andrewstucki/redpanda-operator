@@ -96,22 +96,38 @@ func (s *schema) SchemaEquals(other *schema) bool {
 	}
 
 	// metadata
-	if !functional.CompareMaps(s.SchemaMetadata.Properties, other.SchemaMetadata.Properties) {
+	if s.SchemaMetadata == nil && other.SchemaMetadata != nil {
 		return false
 	}
-	if !functional.CompareMapsFn(s.SchemaMetadata.Tags, other.SchemaMetadata.Tags, slices.Equal) {
+	if s.SchemaMetadata != nil && other.SchemaMetadata == nil {
 		return false
 	}
-	if !slices.Equal(s.SchemaMetadata.Sensitive, other.SchemaMetadata.Sensitive) {
-		return false
+	if s.SchemaMetadata != nil && other.SchemaMetadata != nil {
+		if !functional.CompareMaps(s.SchemaMetadata.Properties, other.SchemaMetadata.Properties) {
+			return false
+		}
+		if !functional.CompareMapsFn(s.SchemaMetadata.Tags, other.SchemaMetadata.Tags, slices.Equal) {
+			return false
+		}
+		if !slices.Equal(s.SchemaMetadata.Sensitive, other.SchemaMetadata.Sensitive) {
+			return false
+		}
 	}
 
 	// rule set
-	if !functional.CompareConvertibleSlices(s.SchemaRuleSet.DomainRules, other.SchemaRuleSet.DomainRules, schemaRulesEqual) {
+	if s.SchemaRuleSet == nil && other.SchemaRuleSet != nil {
 		return false
 	}
-	if !functional.CompareConvertibleSlices(s.SchemaRuleSet.MigrationRules, other.SchemaRuleSet.MigrationRules, schemaRulesEqual) {
+	if s.SchemaRuleSet != nil && other.SchemaRuleSet == nil {
 		return false
+	}
+	if s.SchemaRuleSet != nil && other.SchemaRuleSet != nil {
+		if !functional.CompareConvertibleSlices(s.SchemaRuleSet.DomainRules, other.SchemaRuleSet.DomainRules, schemaRulesEqual) {
+			return false
+		}
+		if !functional.CompareConvertibleSlices(s.SchemaRuleSet.MigrationRules, other.SchemaRuleSet.MigrationRules, schemaRulesEqual) {
+			return false
+		}
 	}
 
 	return true
