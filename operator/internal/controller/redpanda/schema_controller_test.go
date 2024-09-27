@@ -32,10 +32,19 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have clear subtests.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
-	defer cancel()
+type ResourceReconcilerTestEnvironment[T any, U Resource[T]] struct {
+	Reconciler                 *ResourceController[T, U]
+	Factory                    *internalclient.Factory
+	ClusterSourceValid         *redpandav1alpha2.ClusterSource
+	ClusterSourceNoSASL        *redpandav1alpha2.ClusterSource
+	ClusterSourceBadPassword   *redpandav1alpha2.ClusterSource
+	ClusterSourceInvalidRef    *redpandav1alpha2.ClusterSource
+	SyncedCondition            metav1.Condition
+	InvalidClusterRefCondition metav1.Condition
+	ClientErrorCondition       metav1.Condition
+}
 
+func InitializeResourceReconcilerTest[T any, U Resource[T]](t *testing.T, ctx context.Context, reconciler ResourceReconciler[U]) *ResourceReconcilerTestEnvironment[T, U] {
 	server := &envtest.APIServer{}
 	etcd := &envtest.Etcd{}
 
@@ -67,6 +76,12 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 	t.Cleanup(func() {
 		_ = container.Terminate(context.Background())
 	})
+
+	kafkaAddress, err := container.KafkaSeedBroker(ctx)
+	require.NoError(t, err)
+
+	adminAPI, err := container.AdminAPIAddress(ctx)
+	require.NoError(t, err)
 
 	schemaRegistry, err := container.SchemaRegistryAddress(ctx)
 	require.NoError(t, err)
@@ -103,13 +118,30 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 	})
 	require.NoError(t, err)
 
-	reconciler := SchemaReconciler{
-		Client:        c,
-		ClientFactory: factory,
-	}
-
 	validClusterSource := &redpandav1alpha2.ClusterSource{
 		StaticConfiguration: &redpandav1alpha2.StaticConfigurationSource{
+			Kafka: &redpandav1alpha2.KafkaAPISpec{
+				Brokers: []string{kafkaAddress},
+				SASL: &redpandav1alpha2.KafkaSASL{
+					Username: "superuser",
+					Password: redpandav1alpha2.SecretKeyRef{
+						Name: "superuser",
+						Key:  "password",
+					},
+					Mechanism: redpandav1alpha2.SASLMechanismScramSHA256,
+				},
+			},
+			Admin: &redpandav1alpha2.AdminAPISpec{
+				URLs: []string{adminAPI},
+				SASL: &redpandav1alpha2.AdminSASL{
+					Username: "superuser",
+					Password: redpandav1alpha2.SecretKeyRef{
+						Name: "superuser",
+						Key:  "password",
+					},
+					Mechanism: redpandav1alpha2.SASLMechanismScramSHA256,
+				},
+			},
 			SchemaRegistry: &redpandav1alpha2.SchemaRegistrySpec{
 				URLs: []string{schemaRegistry},
 				SASL: &redpandav1alpha2.SchemaRegistrySASL{
@@ -126,6 +158,28 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 
 	invalidAuthClusterSourceBadPassword := &redpandav1alpha2.ClusterSource{
 		StaticConfiguration: &redpandav1alpha2.StaticConfigurationSource{
+			Kafka: &redpandav1alpha2.KafkaAPISpec{
+				Brokers: []string{kafkaAddress},
+				SASL: &redpandav1alpha2.KafkaSASL{
+					Username: "superuser",
+					Password: redpandav1alpha2.SecretKeyRef{
+						Name: "invalidsuperuser",
+						Key:  "password",
+					},
+					Mechanism: redpandav1alpha2.SASLMechanismScramSHA256,
+				},
+			},
+			Admin: &redpandav1alpha2.AdminAPISpec{
+				URLs: []string{adminAPI},
+				SASL: &redpandav1alpha2.AdminSASL{
+					Username: "superuser",
+					Password: redpandav1alpha2.SecretKeyRef{
+						Name: "invalidsuperuser",
+						Key:  "password",
+					},
+					Mechanism: redpandav1alpha2.SASLMechanismScramSHA256,
+				},
+			},
 			SchemaRegistry: &redpandav1alpha2.SchemaRegistrySpec{
 				URLs: []string{schemaRegistry},
 				SASL: &redpandav1alpha2.SchemaRegistrySASL{
@@ -142,6 +196,12 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 
 	invalidAuthClusterSourceNoSASL := &redpandav1alpha2.ClusterSource{
 		StaticConfiguration: &redpandav1alpha2.StaticConfigurationSource{
+			Kafka: &redpandav1alpha2.KafkaAPISpec{
+				Brokers: []string{kafkaAddress},
+			},
+			Admin: &redpandav1alpha2.AdminAPISpec{
+				URLs: []string{adminAPI},
+			},
 			SchemaRegistry: &redpandav1alpha2.SchemaRegistrySpec{
 				URLs: []string{schemaRegistry},
 			},
@@ -154,12 +214,41 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 		},
 	}
 
+	syncedClusterRefCondition := redpandav1alpha2.SchemaSyncedCondition("test")
+
+	invalidClusterRefCondition := redpandav1alpha2.SchemaNotSyncedCondition(
+		redpandav1alpha2.SchemaConditionReasonClusterRefInvalid, errors.New("test"),
+	)
+
+	clientErrorCondition := redpandav1alpha2.SchemaNotSyncedCondition(
+		redpandav1alpha2.SchemaConditionReasonTerminalClientError, errors.New("test"),
+	)
+
+	return &ResourceReconcilerTestEnvironment[T, U]{
+		Reconciler:                 NewResourceController(c, factory, reconciler, "Test"),
+		Factory:                    factory,
+		ClusterSourceValid:         validClusterSource,
+		ClusterSourceNoSASL:        invalidAuthClusterSourceNoSASL,
+		ClusterSourceBadPassword:   invalidAuthClusterSourceBadPassword,
+		ClusterSourceInvalidRef:    invalidClusterRefSource,
+		SyncedCondition:            syncedClusterRefCondition,
+		InvalidClusterRefCondition: invalidClusterRefCondition,
+		ClientErrorCondition:       clientErrorCondition,
+	}
+}
+
+func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have clear subtests.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+	defer cancel()
+
+	environment := InitializeResourceReconcilerTest(t, ctx, &SchemaReconciler{})
+
 	baseSchema := &redpandav1alpha2.Schema{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: metav1.NamespaceDefault,
 		},
 		Spec: redpandav1alpha2.SchemaSpec{
-			ClusterSource: validClusterSource,
+			ClusterSource: environment.ClusterSourceValid,
 			Text: `{
 			"type": "record",
 			"name": "test",
@@ -178,40 +267,30 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 		},
 	}
 
-	syncedClusterRefCondition := redpandav1alpha2.SchemaSyncedCondition("test")
-
-	invalidClusterRefCondition := redpandav1alpha2.SchemaNotSyncedCondition(
-		redpandav1alpha2.SchemaConditionReasonClusterRefInvalid, errors.New("test"),
-	)
-
-	clientErrorCondition := redpandav1alpha2.SchemaNotSyncedCondition(
-		redpandav1alpha2.SchemaConditionReasonTerminalClientError, errors.New("test"),
-	)
-
 	for name, tt := range map[string]struct {
 		mutate            func(schema *redpandav1alpha2.Schema)
 		expectedCondition metav1.Condition
 	}{
 		"success": {
-			expectedCondition: syncedClusterRefCondition,
+			expectedCondition: environment.SyncedCondition,
 		},
 		"error - invalid cluster ref": {
 			mutate: func(schema *redpandav1alpha2.Schema) {
-				schema.Spec.ClusterSource = invalidClusterRefSource
+				schema.Spec.ClusterSource = environment.ClusterSourceInvalidRef
 			},
-			expectedCondition: invalidClusterRefCondition,
+			expectedCondition: environment.InvalidClusterRefCondition,
 		},
 		"error - client error no SASL": {
 			mutate: func(schema *redpandav1alpha2.Schema) {
-				schema.Spec.ClusterSource = invalidAuthClusterSourceNoSASL
+				schema.Spec.ClusterSource = environment.ClusterSourceNoSASL
 			},
-			expectedCondition: clientErrorCondition,
+			expectedCondition: environment.ClientErrorCondition,
 		},
 		"error - client error invalid credentials": {
 			mutate: func(schema *redpandav1alpha2.Schema) {
-				schema.Spec.ClusterSource = invalidAuthClusterSourceBadPassword
+				schema.Spec.ClusterSource = environment.ClusterSourceBadPassword
 			},
-			expectedCondition: clientErrorCondition,
+			expectedCondition: environment.ClientErrorCondition,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -225,11 +304,11 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 			key := client.ObjectKeyFromObject(schema)
 			req := ctrl.Request{NamespacedName: key}
 
-			require.NoError(t, c.Create(ctx, schema))
-			_, err = reconciler.Reconcile(ctx, req)
+			require.NoError(t, environment.Factory.Create(ctx, schema))
+			_, err := environment.Reconciler.Reconcile(ctx, req)
 			require.NoError(t, err)
 
-			require.NoError(t, c.Get(ctx, key, schema))
+			require.NoError(t, environment.Factory.Get(ctx, key, schema))
 			require.Equal(t, []string{FinalizerKey}, schema.Finalizers)
 			require.Len(t, schema.Status.Conditions, 1)
 			require.Equal(t, tt.expectedCondition.Type, schema.Status.Conditions[0].Type)
@@ -237,7 +316,7 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 			require.Equal(t, tt.expectedCondition.Status, schema.Status.Conditions[0].Status)
 
 			if tt.expectedCondition.Status == metav1.ConditionTrue { //nolint:nestif // ignore
-				schemaClient, err := factory.SchemaRegistryClient(ctx, schema)
+				schemaClient, err := environment.Factory.SchemaRegistryClient(ctx, schema)
 				require.NoError(t, err)
 				require.NotNil(t, schemaClient)
 
@@ -245,10 +324,10 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 				require.NoError(t, err)
 
 				// clean up and make sure we properly delete everything
-				require.NoError(t, c.Delete(ctx, schema))
-				_, err = reconciler.Reconcile(ctx, req)
+				require.NoError(t, environment.Factory.Delete(ctx, schema))
+				_, err = environment.Reconciler.Reconcile(ctx, req)
 				require.NoError(t, err)
-				require.True(t, apierrors.IsNotFound(c.Get(ctx, key, schema)))
+				require.True(t, apierrors.IsNotFound(environment.Factory.Get(ctx, key, schema)))
 
 				// make sure we no longer have a schema
 				_, err = schemaClient.SchemaByVersion(ctx, schema.Name, -1)
@@ -258,10 +337,10 @@ func TestSchemaReconcile(t *testing.T) { // nolint:funlen // These tests have cl
 			}
 
 			// clean up and make sure we properly delete everything
-			require.NoError(t, c.Delete(ctx, schema))
-			_, err = reconciler.Reconcile(ctx, req)
+			require.NoError(t, environment.Factory.Delete(ctx, schema))
+			_, err = environment.Reconciler.Reconcile(ctx, req)
 			require.NoError(t, err)
-			require.True(t, apierrors.IsNotFound(c.Get(ctx, key, schema)))
+			require.True(t, apierrors.IsNotFound(environment.Factory.Get(ctx, key, schema)))
 		})
 	}
 }
