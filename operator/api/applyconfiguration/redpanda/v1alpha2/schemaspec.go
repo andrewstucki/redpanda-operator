@@ -22,8 +22,6 @@ type SchemaSpecApplyConfiguration struct {
 	Text               *string                              `json:"text,omitempty"`
 	Type               *redpandav1alpha2.SchemaType         `json:"schemaType,omitempty"`
 	References         []SchemaReferenceApplyConfiguration  `json:"references,omitempty"`
-	SchemaMetadata     *SchemaMetadataApplyConfiguration    `json:"metadata,omitempty"`
-	SchemaRuleSet      *SchemaRuleSetApplyConfiguration     `json:"ruleSet,omitempty"`
 	CompatibilityLevel *redpandav1alpha2.CompatibilityLevel `json:"compatibilityLevel,omitempty"`
 }
 
@@ -67,22 +65,6 @@ func (b *SchemaSpecApplyConfiguration) WithReferences(values ...*SchemaReference
 		}
 		b.References = append(b.References, *values[i])
 	}
-	return b
-}
-
-// WithSchemaMetadata sets the SchemaMetadata field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SchemaMetadata field is set to the value of the last call.
-func (b *SchemaSpecApplyConfiguration) WithSchemaMetadata(value *SchemaMetadataApplyConfiguration) *SchemaSpecApplyConfiguration {
-	b.SchemaMetadata = value
-	return b
-}
-
-// WithSchemaRuleSet sets the SchemaRuleSet field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SchemaRuleSet field is set to the value of the last call.
-func (b *SchemaSpecApplyConfiguration) WithSchemaRuleSet(value *SchemaRuleSetApplyConfiguration) *SchemaSpecApplyConfiguration {
-	b.SchemaRuleSet = value
 	return b
 }
 

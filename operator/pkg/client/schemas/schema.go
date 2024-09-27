@@ -49,8 +49,6 @@ func schemaFromV1Alpha2Schema(s *redpandav1alpha2.Schema) (*schema, error) {
 		Schema:             s.Spec.Text,
 		Type:               s.Spec.GetType().ToKafka(),
 		References:         functional.MapFn(redpandav1alpha2.SchemaReferenceToKafka, s.Spec.References),
-		SchemaMetadata:     s.Spec.SchemaMetadata.ToKafka(),
-		SchemaRuleSet:      s.Spec.SchemaRuleSet.ToKafka(),
 		Hash:               hash,
 	}, nil
 }
@@ -62,8 +60,6 @@ func schemaFromRedpandaSubjectSchema(s *sr.SubjectSchema, hash string, compatibi
 		Schema:             s.Schema.Schema,
 		Type:               s.Type,
 		References:         s.References,
-		SchemaMetadata:     s.SchemaMetadata,
-		SchemaRuleSet:      s.SchemaRuleSet,
 		Hash:               hash,
 	}
 }
