@@ -41,6 +41,8 @@ type Schema struct {
 }
 
 func (s *Schema) Matches(schema *sr.SubjectSchema) bool {
+	// TODO: actually fill this in
+
 	if s.Name != schema.Subject {
 		return false
 	}
@@ -86,6 +88,13 @@ func (s *Schema) Matches(schema *sr.SubjectSchema) bool {
 	}
 
 	return true
+}
+
+func (s *Schema) ToKafka() sr.Schema {
+	// TODO: actually fill this in
+	return sr.Schema{
+		Schema: s.Spec.Text,
+	}
 }
 
 func (s *Schema) GetSchemaType() SchemaType {

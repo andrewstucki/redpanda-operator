@@ -12,6 +12,7 @@ package redpanda
 
 import (
 	"context"
+	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,7 +71,6 @@ func (r *SchemaReconciler) SyncResource(ctx context.Context, request ResourceReq
 		return createPatch(err, versions)
 	}
 
-	toCreate := sr.Schema{Schema: schema.Spec.Text}
 	dirty := true
 	if len(schema.Status.Versions) > 0 {
 		subjectSchema, err := client.SchemaByVersion(ctx, schema.Name, -1)
@@ -82,7 +82,7 @@ func (r *SchemaReconciler) SyncResource(ctx context.Context, request ResourceReq
 
 	versions = schema.Status.Versions
 	if dirty {
-		subjectSchema, err := client.CreateSchema(ctx, schema.Name, toCreate)
+		subjectSchema, err := client.CreateSchema(ctx, schema.Name, schema.ToKafka())
 		if err != nil {
 			return createPatch(err, versions)
 		}
@@ -123,5 +123,8 @@ func SetupSchemaController(ctx context.Context, mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&redpandav1alpha2.Schema{}).
 		Watches(&redpandav1alpha2.Redpanda{}, enqueueFromSourceCluster(mgr, "schema", &redpandav1alpha2.SchemaList{})).
-		Complete(controller)
+		// Every 5 minutes try and check to make sure no manual modifications
+		// happened on the resource synced to the cluster and attempt to correct
+		// any drift.
+		Complete(controller.PeriodicallyReconcile(5 * time.Minute))
 }

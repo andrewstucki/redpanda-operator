@@ -12,6 +12,7 @@ package redpanda
 
 import (
 	"context"
+	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -174,5 +175,8 @@ func SetupUserController(ctx context.Context, mgr ctrl.Manager) error {
 		For(&redpandav1alpha2.User{}).
 		Owns(&corev1.Secret{}).
 		Watches(&redpandav1alpha2.Redpanda{}, enqueueFromSourceCluster(mgr, "user", &redpandav1alpha2.UserList{})).
-		Complete(controller)
+		// Every 5 minutes try and check to make sure no manual modifications
+		// happened on the resource synced to the cluster and attempt to correct
+		// any drift.
+		Complete(controller.PeriodicallyReconcile(5 * time.Minute))
 }

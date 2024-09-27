@@ -39,9 +39,9 @@ type ResourceController[T any, U Resource[T]] struct {
 	client.Client
 	internalclient.ClientFactory
 
-	reconciler ResourceReconciler[U]
-
-	name string
+	reconciler      ResourceReconciler[U]
+	name            string
+	periodicTimeout time.Duration
 }
 
 func NewResourceController[T any, U Resource[T]](c client.Client, factory internalclient.ClientFactory, reconciler ResourceReconciler[U], name string) *ResourceController[T, U] {
@@ -51,6 +51,11 @@ func NewResourceController[T any, U Resource[T]](c client.Client, factory intern
 		reconciler:    reconciler,
 		name:          name,
 	}
+}
+
+func (r *ResourceController[T, U]) PeriodicallyReconcile(timeout time.Duration) *ResourceController[T, U] {
+	r.periodicTimeout = timeout
+	return r
 }
 
 func (r *ResourceController[T, U]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -92,7 +97,12 @@ func (r *ResourceController[T, U]) Reconcile(ctx context.Context, req ctrl.Reque
 	patch, err := r.reconciler.SyncResource(ctx, request)
 	syncError := r.Status().Patch(ctx, object, patch, client.ForceOwnership, fieldOwner)
 
-	return ctrl.Result{}, errors.Join(err, syncError)
+	result := ctrl.Result{}
+	if r.periodicTimeout != 0 {
+		result.RequeueAfter = r.periodicTimeout
+	}
+
+	return result, errors.Join(err, syncError)
 }
 
 func ignoreAllConnectionErrors(logger logr.Logger, err error) error {
