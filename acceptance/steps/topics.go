@@ -28,9 +28,9 @@ func topicIsSuccessfullySynced(ctx context.Context, t framework.TestingT, topic 
 
 	// make sure it's synchronized
 	t.RequireCondition(metav1.Condition{
-		Type:   redpandav1alpha2.ReadyCondition,
+		Type:   redpandav1alpha2.ResourceConditionTypeSynced,
 		Status: metav1.ConditionTrue,
-		Reason: redpandav1alpha2.SucceededReason,
+		Reason: redpandav1alpha2.ResourceConditionReasonSynced,
 	}, topicObject.Status.Conditions)
 }
 

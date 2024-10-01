@@ -62,6 +62,7 @@ type TopicSpec struct {
 
 	// Defines when the topic controller will schedule the next reconciliation.
 	// Default is 3 seconds.
+	// Deprecated: This field is ignored
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Format=duration
 	// +kubebuilder:default="3s"
@@ -93,6 +94,7 @@ type TopicStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// TopicConfiguration is the last snapshot of the topic configuration during successful reconciliation.
+	// Deprecated: This status field is no longer updated
 	TopicConfiguration []Configuration `json:"topicConfiguration,omitempty"`
 }
 

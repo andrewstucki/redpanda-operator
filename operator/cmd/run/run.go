@@ -54,7 +54,6 @@ import (
 	redpandacontrollers "github.com/redpanda-data/redpanda-operator/operator/internal/controller/redpanda"
 	vectorizedcontrollers "github.com/redpanda-data/redpanda-operator/operator/internal/controller/vectorized"
 	adminutils "github.com/redpanda-data/redpanda-operator/operator/pkg/admin"
-	internalclient "github.com/redpanda-data/redpanda-operator/operator/pkg/client"
 	consolepkg "github.com/redpanda-data/redpanda-operator/operator/pkg/console"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/resources"
 	redpandawebhooks "github.com/redpanda-data/redpanda-operator/operator/webhooks/redpanda"
@@ -357,18 +356,7 @@ func Run(
 			os.Exit(1)
 		}
 
-		var topicEventRecorder *events.Recorder
-		if topicEventRecorder, err = events.NewRecorder(mgr, ctrl.Log, eventsAddr, "TopicReconciler"); err != nil {
-			setupLog.Error(err, "unable to create event recorder for: TopicReconciler")
-			os.Exit(1)
-		}
-
-		if err = (&redpandacontrollers.TopicReconciler{
-			Client:        mgr.GetClient(),
-			Factory:       internalclient.NewFactory(mgr.GetConfig(), mgr.GetClient()),
-			Scheme:        mgr.GetScheme(),
-			EventRecorder: topicEventRecorder,
-		}).SetupWithManager(mgr); err != nil {
+		if err = redpandacontrollers.SetupTopicController(ctx, mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Topic")
 			os.Exit(1)
 		}
@@ -410,8 +398,6 @@ func Run(
 		}
 	case OperatorV2Mode:
 		ctrl.Log.Info("running in v2", "mode", OperatorV2Mode, "helm controllers enabled", enableHelmControllers, "namespace", namespace)
-
-		factory := internalclient.NewFactory(mgr.GetConfig(), mgr.GetClient())
 
 		// if we enable these controllers then run them, otherwise, do not
 		//nolint:nestif // not really nested, required.
@@ -531,18 +517,7 @@ func Run(
 			os.Exit(1)
 		}
 
-		var topicEventRecorder *events.Recorder
-		if topicEventRecorder, err = events.NewRecorder(mgr, ctrl.Log, eventsAddr, "TopicReconciler"); err != nil {
-			setupLog.Error(err, "unable to create event recorder for: TopicReconciler")
-			os.Exit(1)
-		}
-
-		if err = (&redpandacontrollers.TopicReconciler{
-			Client:        mgr.GetClient(),
-			Factory:       factory,
-			Scheme:        mgr.GetScheme(),
-			EventRecorder: topicEventRecorder,
-		}).SetupWithManager(mgr); err != nil {
+		if err = redpandacontrollers.SetupTopicController(ctx, mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Topic")
 			os.Exit(1)
 		}

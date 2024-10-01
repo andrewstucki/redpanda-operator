@@ -539,6 +539,7 @@ spec:
                 description: |-
                   Defines when the topic controller will schedule the next reconciliation.
                   Default is 3 seconds.
+                  Deprecated: This field is ignored
                 format: duration
                 type: string
               kafkaApiSpec:
@@ -860,8 +861,9 @@ spec:
                 format: int64
                 type: integer
               topicConfiguration:
-                description: TopicConfiguration is the last snapshot of the topic
-                  configuration during successful reconciliation.
+                description: |-
+                  TopicConfiguration is the last snapshot of the topic configuration during successful reconciliation.
+                  Deprecated: This status field is no longer updated
                 items:
                   description: Configuration was copied from https://github.com/twmb/franz-go/blob/01651affd204d4a3577a341e748c5d09b52587f8/pkg/kmsg/generated.go#L24593-L24634
                   properties:
@@ -1476,6 +1478,7 @@ spec:
                 description: |-
                   Defines when the topic controller will schedule the next reconciliation.
                   Default is 3 seconds.
+                  Deprecated: This field is ignored
                 format: duration
                 type: string
               kafkaApiSpec:
@@ -1797,8 +1800,9 @@ spec:
                 format: int64
                 type: integer
               topicConfiguration:
-                description: TopicConfiguration is the last snapshot of the topic
-                  configuration during successful reconciliation.
+                description: |-
+                  TopicConfiguration is the last snapshot of the topic configuration during successful reconciliation.
+                  Deprecated: This status field is no longer updated
                 items:
                   description: Configuration was copied from https://github.com/twmb/franz-go/blob/01651affd204d4a3577a341e748c5d09b52587f8/pkg/kmsg/generated.go#L24593-L24634
                   properties:

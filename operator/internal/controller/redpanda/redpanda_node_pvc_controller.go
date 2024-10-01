@@ -39,7 +39,9 @@ type RedpandaNodePVCReconciler struct {
 // SetupWithManager sets up the controller with the Manager.
 func (r *RedpandaNodePVCReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.Node{}).WithEventFilter(DeleteEventFilter).Complete(r)
+		For(&corev1.Node{}).
+		WithEventFilter(DeleteEventFilter).
+		Complete(r)
 }
 
 func (r *RedpandaNodePVCReconciler) Reconcile(c context.Context, req ctrl.Request) (ctrl.Result, error) {

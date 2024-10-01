@@ -20,7 +20,6 @@ import (
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/kubernetes"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/utils"
 	"github.com/twmb/franz-go/pkg/kgo"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -98,7 +97,6 @@ func SetupTopicController(ctx context.Context, mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&redpandav1alpha2.Topic{}).
-		Owns(&corev1.Secret{}).
 		Watches(&redpandav1alpha2.Redpanda{}, enqueueTopic).
 		// Every 5 minutes try and check to make sure no manual modifications
 		// happened on the resource synced to the cluster and attempt to correct
