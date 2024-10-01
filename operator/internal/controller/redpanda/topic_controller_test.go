@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -23,8 +24,6 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
 )
 
 func TestTopicController(t *testing.T) { // nolint:funlen // These tests have clear subtests.
@@ -48,7 +47,7 @@ func TestTopicController(t *testing.T) { // nolint:funlen // These tests have cl
 	}
 
 	fetchTopicMetadata := func(t *testing.T, o *redpandav1alpha2.Topic) kmsg.MetadataResponseTopic {
-		client, err := environment.Factory.KafkaClient(ctx, o)
+		client, err := environment.Factory.KafkaClient(ctx, o, timeoutOption)
 		require.NoError(t, err)
 
 		metaRequest := kmsg.NewPtrMetadataRequest()
@@ -154,46 +153,6 @@ func TestTopicController(t *testing.T) { // nolint:funlen // These tests have cl
 		topic.Spec.Partitions = ptr.To(6)
 
 		expectTopicReconciles(t, topic, false)
-	})
-
-	t.Run("unable_to_remove_partition", func(t *testing.T) {
-		topic := baseTopic.DeepCopy()
-		topic.Name = "scale-down-partition-count"
-		topic.Spec.Partitions = ptr.To(3)
-		topic.Spec.AdditionalConfig = map[string]*string{
-			"segment.bytes": ptr.To("7654321"),
-		}
-
-		expectTopicReconciles(t, topic, true)
-
-		topic.Spec.Partitions = ptr.To(1)
-		require.NoError(t, environment.Factory.Client.Update(ctx, topic))
-
-		key := client.ObjectKeyFromObject(topic)
-		req := ctrl.Request{NamespacedName: key}
-
-		_, err := environment.Reconciler.Reconcile(ctx, req)
-		require.Error(t, err)
-	})
-
-	t.Run("unable_to_increase_replication_factor", func(t *testing.T) {
-		topic := baseTopic.DeepCopy()
-		topic.Name = "change-replication-factor"
-		topic.Spec.ReplicationFactor = ptr.To(1)
-		topic.Spec.AdditionalConfig = map[string]*string{
-			"segment.bytes": ptr.To("7654321"),
-		}
-
-		expectTopicReconciles(t, topic, true)
-
-		topic.Spec.ReplicationFactor = ptr.To(3)
-		require.NoError(t, environment.Factory.Client.Update(ctx, topic))
-
-		key := client.ObjectKeyFromObject(topic)
-		req := ctrl.Request{NamespacedName: key}
-
-		_, err := environment.Reconciler.Reconcile(ctx, req)
-		require.Error(t, err)
 	})
 
 	t.Run("delete_a_key`s_config_value", func(t *testing.T) {

@@ -27,6 +27,8 @@ import (
 	"github.com/fluxcd/pkg/runtime/logger"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/go-logr/logr"
+	"github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/resources"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -41,9 +43,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	v2 "sigs.k8s.io/controller-runtime/pkg/webhook/conversion/testdata/api/v2"
-
-	"github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
-	"github.com/redpanda-data/redpanda-operator/operator/pkg/resources"
 )
 
 const (

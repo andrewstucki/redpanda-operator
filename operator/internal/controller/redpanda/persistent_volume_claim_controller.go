@@ -16,13 +16,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/component-helpers/storage/volume"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha1"
 )
 
 // +kubebuilder:rbac:groups=cluster.redpanda.com,namespace=default,resources=redpandas,verbs=get;list;watch;

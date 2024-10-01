@@ -11,12 +11,15 @@ package v1alpha2
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/redpanda-data/redpanda-operator/operator/internal/testutils"
@@ -97,4 +100,48 @@ func TestTopicValidation(t *testing.T) {
 			runValidationTest(ctx, t, tt, c, &baseTopic)
 		})
 	}
+
+	t.Run("increase-only partitions", func(t *testing.T) {
+		objectCopy := baseTopic.DeepCopy()
+		objectCopy.SetName("increase-only")
+		objectCopy.Spec.Partitions = ptr.To(3)
+
+		require.NoError(t, c.Create(ctx, objectCopy))
+
+		expectedMessage := "decreasing partitions is not allowed"
+		objectCopy.Spec.Partitions = ptr.To(1)
+
+		err := c.Update(ctx, objectCopy)
+		require.Error(t, err)
+		assert.Contains(t, strings.ToLower(err.Error()), strings.ToLower(expectedMessage))
+
+		expectedMessage = "partitions cannot be unset once set"
+		objectCopy.Spec.Partitions = nil
+
+		err = c.Update(ctx, objectCopy)
+		require.Error(t, err)
+		assert.Contains(t, strings.ToLower(err.Error()), strings.ToLower(expectedMessage))
+	})
+
+	t.Run("decrease-only replication", func(t *testing.T) {
+		objectCopy := baseTopic.DeepCopy()
+		objectCopy.SetName("decrease-only")
+		objectCopy.Spec.ReplicationFactor = ptr.To(1)
+
+		require.NoError(t, c.Create(ctx, objectCopy))
+
+		expectedMessage := "increasing replicationFactor is not allowed"
+		objectCopy.Spec.ReplicationFactor = ptr.To(2)
+
+		err := c.Update(ctx, objectCopy)
+		require.Error(t, err)
+		assert.Contains(t, strings.ToLower(err.Error()), strings.ToLower(expectedMessage))
+
+		expectedMessage = "replicationFactor cannot be unset once set"
+		objectCopy.Spec.ReplicationFactor = nil
+
+		err = c.Update(ctx, objectCopy)
+		require.Error(t, err)
+		assert.Contains(t, strings.ToLower(err.Error()), strings.ToLower(expectedMessage))
+	})
 }

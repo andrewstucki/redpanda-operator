@@ -18,6 +18,9 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/logger"
 	"github.com/go-logr/logr"
+	"github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/resources"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -29,10 +32,6 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
-	"github.com/redpanda-data/redpanda-operator/operator/pkg/resources"
-	"github.com/redpanda-data/redpanda-operator/operator/pkg/utils"
 )
 
 const (
@@ -56,7 +55,8 @@ type ManagedDecommissionReconciler struct {
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManagedDecommissionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha2.Redpanda{}).Complete(r)
+		For(&v1alpha2.Redpanda{}).
+		Complete(r)
 }
 
 func (r *ManagedDecommissionReconciler) Reconcile(c context.Context, req ctrl.Request) (ctrl.Result, error) {

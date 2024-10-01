@@ -785,16 +785,26 @@ spec:
                   See https://docs.redpanda.com/docs/reference/cluster-properties/#default_topic_partitions and
                   https://docs.redpanda.com/docs/get-started/architecture/#partitions
                 type: integer
+                x-kubernetes-validations:
+                - message: decreasing partitions is not allowed
+                  rule: self >= oldSelf
               replicationFactor:
                 description: |-
                   Specifies the number of replicas the topic should have. Must be odd value.
                   When absent this will default to the Redpanda cluster configuration `default_topic_replications`.
                   See https://docs.redpanda.com/docs/reference/cluster-properties/#default_topic_replications.
                 type: integer
+                x-kubernetes-validations:
+                - message: increasing replicationFactor is not allowed
+                  rule: self <= oldSelf
             type: object
             x-kubernetes-validations:
             - message: cluster must be specified if kafkaApiSpec is not
               rule: has(self.cluster) || has(self.kafkaApiSpec)
+            - message: partitions cannot be unset once set
+              rule: '!has(oldSelf.partitions) || has(self.partitions)'
+            - message: replicationFactor cannot be unset once set
+              rule: '!has(oldSelf.replicationFactor) || has(self.replicationFactor)'
           status:
             description: Represents the current status of the Topic resource.
             properties:
@@ -1724,16 +1734,26 @@ spec:
                   See https://docs.redpanda.com/docs/reference/cluster-properties/#default_topic_partitions and
                   https://docs.redpanda.com/docs/get-started/architecture/#partitions
                 type: integer
+                x-kubernetes-validations:
+                - message: decreasing partitions is not allowed
+                  rule: self >= oldSelf
               replicationFactor:
                 description: |-
                   Specifies the number of replicas the topic should have. Must be odd value.
                   When absent this will default to the Redpanda cluster configuration `default_topic_replications`.
                   See https://docs.redpanda.com/docs/reference/cluster-properties/#default_topic_replications.
                 type: integer
+                x-kubernetes-validations:
+                - message: increasing replicationFactor is not allowed
+                  rule: self <= oldSelf
             type: object
             x-kubernetes-validations:
             - message: cluster must be specified if kafkaApiSpec is not
               rule: has(self.cluster) || has(self.kafkaApiSpec)
+            - message: partitions cannot be unset once set
+              rule: '!has(oldSelf.partitions) || has(self.partitions)'
+            - message: replicationFactor cannot be unset once set
+              rule: '!has(oldSelf.replicationFactor) || has(self.replicationFactor)'
           status:
             description: Represents the current status of the Topic resource.
             properties:

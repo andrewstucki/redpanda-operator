@@ -19,6 +19,8 @@ import (
 
 // TopicSpec defines the desired state of the topic. See https://docs.redpanda.com/current/manage/kubernetes/manage-topics/.
 // +kubebuilder:validation:XValidation:message="cluster must be specified if kafkaApiSpec is not",rule=`has(self.cluster) || has(self.kafkaApiSpec)`
+// +kubebuilder:validation:XValidation:message="partitions cannot be unset once set",rule=`!has(oldSelf.partitions) || has(self.partitions)`
+// +kubebuilder:validation:XValidation:message="replicationFactor cannot be unset once set",rule=`!has(oldSelf.replicationFactor) || has(self.replicationFactor)`
 type TopicSpec struct {
 	// Specifies the number of topic shards that are distributed across the brokers in a cluster.
 	// This number cannot be decreased after topic creation.
@@ -28,10 +30,12 @@ type TopicSpec struct {
 	// the Redpanda cluster configuration `default_topic_partitions`.
 	// See https://docs.redpanda.com/docs/reference/cluster-properties/#default_topic_partitions and
 	// https://docs.redpanda.com/docs/get-started/architecture/#partitions
+	// +kubebuilder:validation:XValidation:rule="self >= oldSelf",message="decreasing partitions is not allowed"
 	Partitions *int `json:"partitions,omitempty"`
 	// Specifies the number of replicas the topic should have. Must be odd value.
 	// When absent this will default to the Redpanda cluster configuration `default_topic_replications`.
 	// See https://docs.redpanda.com/docs/reference/cluster-properties/#default_topic_replications.
+	// +kubebuilder:validation:XValidation:rule="self <= oldSelf",message="increasing replicationFactor is not allowed"
 	ReplicationFactor *int `json:"replicationFactor,omitempty"`
 	// Changes the topic name from the value of `metadata.name`.
 	OverwriteTopicName *string `json:"overwriteTopicName,omitempty"`
