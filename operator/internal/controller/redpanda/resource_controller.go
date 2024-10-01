@@ -98,13 +98,18 @@ func (r *ResourceController[T, U]) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if !controllerutil.ContainsFinalizer(object, FinalizerKey) {
 		patch := r.reconciler.FinalizerPatch(request)
-		if err := r.Patch(ctx, object, patch, client.ForceOwnership, fieldOwner); err != nil {
-			return ctrl.Result{}, err
+		if patch != nil {
+			if err := r.Patch(ctx, object, patch, client.ForceOwnership, fieldOwner); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 	}
 
 	patch, err := r.reconciler.SyncResource(ctx, request)
-	syncError := r.Status().Patch(ctx, object, patch, client.ForceOwnership, fieldOwner)
+	var syncError error
+	if patch != nil {
+		syncError = r.Status().Patch(ctx, object, patch, client.ForceOwnership, fieldOwner)
+	}
 
 	result := ctrl.Result{}
 	if r.periodicTimeout != 0 {
