@@ -59,6 +59,8 @@ const (
 	componentLabelValue = "redpanda-statefulset"
 
 	HelmChartConstraint = "5.9.3"
+
+	NotManaged = "false"
 )
 
 var errWaitForReleaseDeletion = errors.New("wait for helm release deletion")

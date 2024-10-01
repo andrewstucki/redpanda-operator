@@ -20,6 +20,14 @@ import (
 	cmapiv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	helmControllerAPIV2 "github.com/fluxcd/helm-controller/api/v2beta1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1beta2"
+	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha1"
+	vectorizedv1alpha1 "github.com/redpanda-data/redpanda-operator/operator/api/vectorized/v1alpha1"
+	vectorizedcontrollers "github.com/redpanda-data/redpanda-operator/operator/internal/controller/vectorized"
+	"github.com/redpanda-data/redpanda-operator/operator/internal/testutils"
+	adminutils "github.com/redpanda-data/redpanda-operator/operator/pkg/admin"
+	consolepkg "github.com/redpanda-data/redpanda-operator/operator/pkg/console"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/resources/types"
+	"github.com/redpanda-data/redpanda-operator/operator/webhooks/redpanda"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
 	corev1 "k8s.io/api/core/v1"
@@ -34,15 +42,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-
-	redpandav1alpha1 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha1"
-	vectorizedv1alpha1 "github.com/redpanda-data/redpanda-operator/operator/api/vectorized/v1alpha1"
-	redpandacontrollers "github.com/redpanda-data/redpanda-operator/operator/internal/controller/redpanda"
-	"github.com/redpanda-data/redpanda-operator/operator/internal/testutils"
-	adminutils "github.com/redpanda-data/redpanda-operator/operator/pkg/admin"
-	consolepkg "github.com/redpanda-data/redpanda-operator/operator/pkg/console"
-	"github.com/redpanda-data/redpanda-operator/operator/pkg/resources/types"
-	"github.com/redpanda-data/redpanda-operator/operator/webhooks/redpanda"
 )
 
 type mockKafkaAdmin struct{}
@@ -127,7 +126,7 @@ func TestDoNotValidateWhenDeleted(t *testing.T) {
 	require.NoError(t, err)
 	hookServer := mgr.GetWebhookServer()
 
-	err = (&redpandacontrollers.ConsoleReconciler{
+	err = (&vectorizedcontrollers.ConsoleReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		Log:                     ctrl.Log.WithName("controllers").WithName("redpanda").WithName("Console"),
