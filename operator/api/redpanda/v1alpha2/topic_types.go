@@ -12,7 +12,9 @@ package v1alpha2
 import (
 	"time"
 
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/functional"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 // TopicSpec defines the desired state of the topic. See https://docs.redpanda.com/current/manage/kubernetes/manage-topics/.
@@ -64,6 +66,20 @@ type TopicSpec struct {
 	// +kubebuilder:validation:Format=duration
 	// +kubebuilder:default="3s"
 	SynchronizationInterval *metav1.Duration `json:"interval,omitempty"`
+}
+
+func (s *TopicSpec) GetPartitions() int {
+	if s.Partitions == nil {
+		return -1
+	}
+	return *s.Partitions
+}
+
+func (s *TopicSpec) GetReplicationFactor() int {
+	if s.ReplicationFactor == nil {
+		return -1
+	}
+	return *s.ReplicationFactor
 }
 
 // TopicStatus defines the observed state of the Topic resource.
@@ -137,6 +153,7 @@ type ConfigSynonyms struct {
 }
 
 // Topic defines the CRD for Topic resources. See https://docs.redpanda.com/current/manage/kubernetes/manage-topics/.
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:storageversion
@@ -171,6 +188,10 @@ type TopicList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	// Specifies a list of Topic resources.
 	Items []Topic `json:"items"`
+}
+
+func (t *TopicList) GetItems() []*Topic {
+	return functional.MapFn(ptr.To, t.Items)
 }
 
 func init() {

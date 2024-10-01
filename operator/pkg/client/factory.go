@@ -18,6 +18,7 @@ import (
 	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/acls"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/schemas"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/topics"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/users"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -69,6 +70,9 @@ type ClientFactory interface {
 	// The struct *must* implement either the v1alpha2.SchemaRegistryConnectedObject interface of the v1alpha2.ClusterReferencingObject
 	// interface to properly initialize.
 	SchemaRegistryClient(ctx context.Context, object client.Object) (*sr.Client, error)
+
+	// Topics returns a high-level client for synchronizing Topics.
+	Topics(ctx context.Context, object redpandav1alpha2.ClusterReferencingObject, opts ...kgo.Opt) (*topics.Syncer, error)
 
 	// ACLs returns a high-level client for synchronizing ACLs.
 	ACLs(ctx context.Context, object redpandav1alpha2.ClusterReferencingObject, opts ...kgo.Opt) (*acls.Syncer, error)
@@ -188,6 +192,15 @@ func (c *Factory) Schemas(ctx context.Context, obj redpandav1alpha2.ClusterRefer
 	}
 
 	return schemas.NewSyncer(schemaRegistryClient), nil
+}
+
+func (c *Factory) Topics(ctx context.Context, obj redpandav1alpha2.ClusterReferencingObject, opts ...kgo.Opt) (*topics.Syncer, error) {
+	kafkaClient, err := c.KafkaClient(ctx, obj, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return topics.NewSyncer(kafkaClient), nil
 }
 
 func (c *Factory) ACLs(ctx context.Context, obj redpandav1alpha2.ClusterReferencingObject, opts ...kgo.Opt) (*acls.Syncer, error) {
