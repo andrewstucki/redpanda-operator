@@ -167,6 +167,7 @@ func TestTopicController(t *testing.T) { // nolint:funlen // These tests have cl
 		expectTopicReconciles(t, topic, true)
 
 		topic.Spec.Partitions = ptr.To(1)
+		require.NoError(t, environment.Factory.Client.Update(ctx, topic))
 
 		key := client.ObjectKeyFromObject(topic)
 		req := ctrl.Request{NamespacedName: key}
@@ -186,6 +187,7 @@ func TestTopicController(t *testing.T) { // nolint:funlen // These tests have cl
 		expectTopicReconciles(t, topic, true)
 
 		topic.Spec.ReplicationFactor = ptr.To(3)
+		require.NoError(t, environment.Factory.Client.Update(ctx, topic))
 
 		key := client.ObjectKeyFromObject(topic)
 		req := ctrl.Request{NamespacedName: key}
