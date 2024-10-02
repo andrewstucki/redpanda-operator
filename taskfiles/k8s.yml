@@ -33,6 +33,16 @@ tasks:
         --output-pkg "github.com/redpanda-data/redpanda-operator/operator/api/applyconfiguration" \
         ./api/redpanda/v1alpha2
       - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/"redpanda\/v1/"cluster.redpanda.com\/v1/g' {} \;
+      # Fixes for https://github.com/kubernetes/code-generator/issues/166
+      - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/ExtraContainers, \*values\[i\]/ExtraContainers, values\[i\]/g' {} \;
+      - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/ExtraEnv, \*values\[i\]/ExtraEnv, values\[i\]/g' {} \;
+      - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/ExtraEnvFrom, \*values\[i\]/ExtraEnvFrom, values\[i\]/g' {} \;
+      - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/ExtraVolumeMounts, \*values\[i\]/ExtraVolumeMounts, values\[i\]/g' {} \;
+      - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/ExtraVolumes, \*values\[i\]/ExtraVolumes, values\[i\]/g' {} \;
+      - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/ImagePullSecrets, \*values\[i\]/ImagePullSecrets, values\[i\]/g' {} \;
+      - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/SecretMounts, \*values\[i\]/SecretMounts, values\[i\]/g' {} \;
+      - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/Tolerations, \*values\[i\]/Tolerations, values\[i\]/g' {} \;
+      - find ./api/applyconfiguration/redpanda/v1alpha2 -type f -exec sed -i'' 's/LastHandledReconcileAt = &value/LastHandledReconcileAt = value/g' {} \;
       - rm -rf api/applyconfiguration/utils.go api/applyconfiguration/internal
 
 

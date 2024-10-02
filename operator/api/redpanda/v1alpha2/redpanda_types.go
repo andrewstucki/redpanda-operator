@@ -18,13 +18,14 @@ import (
 	redpandachart "github.com/redpanda-data/helm-charts/charts/redpanda"
 	"github.com/redpanda-data/helm-charts/pkg/gotohelm/helmette"
 	"github.com/redpanda-data/helm-charts/pkg/kube"
+	"github.com/redpanda-data/redpanda-operator/operator/api/vectorized/v1alpha1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
-
-	"github.com/redpanda-data/redpanda-operator/operator/api/vectorized/v1alpha1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/conversion"
 )
 
 var RedpandaChartRepository = "https://charts.redpanda.com/"
@@ -60,6 +61,20 @@ type ChartRef struct {
 	// https://fluxcd.io/flux/components/source/helmrepositories/#suspend
 	// +optional
 	UseFlux *bool `json:"useFlux,omitempty"`
+}
+
+func (c *ChartRef) MergeUpgrade(upgrade *helmv2beta2.Upgrade) *helmv2beta2.Upgrade {
+	if c.Upgrade == nil {
+		return upgrade
+	}
+
+	upgrade.Force = ptr.Deref(c.Upgrade.Force, upgrade.Force)
+	upgrade.CleanupOnFail = ptr.Deref(c.Upgrade.CleanupOnFail, upgrade.CleanupOnFail)
+	upgrade.PreserveValues = ptr.Deref(c.Upgrade.PreserveValues, upgrade.PreserveValues)
+	if c.Upgrade.Remediation != nil {
+		upgrade.Remediation = c.Upgrade.Remediation
+	}
+	return upgrade
 }
 
 // RedpandaSpec defines the desired state of the Redpanda cluster.
@@ -149,6 +164,7 @@ type HelmUpgrade struct {
 }
 
 // Redpanda defines the CRD for Redpanda clusters.
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=redpandas
@@ -164,6 +180,13 @@ type Redpanda struct {
 	Spec RedpandaSpec `json:"spec,omitempty"`
 	// Represents the current status of the Redpanda cluster.
 	Status RedpandaStatus `json:"status,omitempty"`
+}
+
+func (r *Redpanda) UseFlux() bool {
+	if r.Spec.ChartRef.UseFlux == nil {
+		return true
+	}
+	return *r.Spec.ChartRef.UseFlux
 }
 
 // RedpandaList contains a list of Redpanda objects.
@@ -207,28 +230,23 @@ func (in *Redpanda) ValuesJSON() (*apiextensionsv1.JSON, error) {
 }
 
 // RedpandaReady registers a successful reconciliation of the given HelmRelease.
-func RedpandaReady(rp *Redpanda) *Redpanda {
-	newCondition := metav1.Condition{
+func RedpandaReady() metav1.Condition {
+	return metav1.Condition{
 		Type:    meta.ReadyCondition,
 		Status:  metav1.ConditionTrue,
 		Reason:  "RedpandaClusterDeployed",
 		Message: "Redpanda reconciliation succeeded",
 	}
-	apimeta.SetStatusCondition(rp.GetConditions(), newCondition)
-	rp.Status.LastAppliedRevision = rp.Status.LastAttemptedRevision
-	return rp
 }
 
 // RedpandaNotReady registers a failed reconciliation of the given Redpanda.
-func RedpandaNotReady(rp *Redpanda, reason, message string) *Redpanda {
-	newCondition := metav1.Condition{
+func RedpandaNotReady(reason, message string) metav1.Condition {
+	return metav1.Condition{
 		Type:    meta.ReadyCondition,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
 		Message: message,
 	}
-	apimeta.SetStatusCondition(rp.GetConditions(), newCondition)
-	return rp
 }
 
 // RedpandaProgressing resets any failures and registers progress toward
@@ -251,7 +269,7 @@ func (in *Redpanda) GetConditions() *[]metav1.Condition {
 	return &in.Status.Conditions
 }
 
-func (in *Redpanda) OwnerShipRefObj() metav1.OwnerReference {
+func (in *Redpanda) AsOwnerReference() metav1.OwnerReference {
 	return metav1.OwnerReference{
 		APIVersion: in.APIVersion,
 		Kind:       in.Kind,
@@ -283,4 +301,15 @@ func (in *Redpanda) GetDot(restConfig *rest.Config) (*helmette.Dot, error) {
 	}
 
 	return redpandachart.Dot(release, partial, kube.RestToConfig(restConfig))
+}
+
+var _ conversion.Hub = &Redpanda{}
+
+func (*Redpanda) Hub() {}
+
+// SetupWebhookWithManager will setup the manager to manage the webhooks
+func (in *Redpanda) SetupWebhookWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewWebhookManagedBy(mgr).
+		For(in).
+		Complete()
 }

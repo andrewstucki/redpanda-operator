@@ -11,11 +11,8 @@ package redpanda
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -27,31 +24,28 @@ import (
 	"github.com/fluxcd/pkg/runtime/logger"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/go-logr/logr"
-	"github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
+	redpandav1alpha2ac "github.com/redpanda-data/redpanda-operator/operator/api/applyconfiguration/redpanda/v1alpha2"
+	redpandav1alpha2 "github.com/redpanda-data/redpanda-operator/operator/api/redpanda/v1alpha2"
+	internalclient "github.com/redpanda-data/redpanda-operator/operator/pkg/client"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/client/kubernetes"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/collections"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/functional"
 	"github.com/redpanda-data/redpanda-operator/operator/pkg/resources"
+	"github.com/redpanda-data/redpanda-operator/operator/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	kuberecorder "k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	v2 "sigs.k8s.io/controller-runtime/pkg/webhook/conversion/testdata/api/v2"
 )
 
 const (
-	resourceReadyStrFmt    = "%s '%s/%s' is ready"
-	resourceNotReadyStrFmt = "%s '%s/%s' is not ready"
-
-	resourceTypeHelmRepository = "HelmRepository"
-	resourceTypeHelmRelease    = "HelmRelease"
-
 	managedPath = "/managed"
 
 	revisionPath        = "/revision"
@@ -62,13 +56,24 @@ const (
 	NotManaged = "false"
 )
 
-var errWaitForReleaseDeletion = errors.New("wait for helm release deletion")
-
 // RedpandaReconciler reconciles a Redpanda object
 type RedpandaReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	kuberecorder.EventRecorder
+	factory *internalclient.Factory
+	Scheme  *runtime.Scheme
+}
+
+func SetupRedpandaReconciler(ctx context.Context, mgr ctrl.Manager) error {
+	c := mgr.GetClient()
+	config := mgr.GetConfig()
+	scheme := mgr.GetScheme()
+	factory := internalclient.NewFactory(config, c)
+
+	return (&RedpandaReconciler{
+		Client:  c,
+		Scheme:  scheme,
+		factory: factory,
+	}).SetupWithManager(ctx, mgr)
 }
 
 // flux resources main resources
@@ -147,7 +152,7 @@ func (r *RedpandaReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	managedWatchOption := builder.WithPredicates(helmManagedComponentPredicate)
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha2.Redpanda{}).
+		For(&redpandav1alpha2.Redpanda{}).
 		Owns(&sourcev1.HelmRepository{}).
 		Owns(&helmv2beta1.HelmRelease{}).
 		Owns(&helmv2beta2.HelmRelease{}).
@@ -170,80 +175,60 @@ func (r *RedpandaReconciler) Reconcile(c context.Context, req ctrl.Request) (ctr
 
 	log.Info("Starting reconcile loop")
 
-	rp := &v1alpha2.Redpanda{}
+	rp := &redpandav1alpha2.Redpanda{}
 	if err := r.Client.Get(ctx, req.NamespacedName, rp); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Examine if the object is under deletion
 	if !rp.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, rp)
-	}
-
-	if !isRedpandaManaged(ctx, rp) {
-		if controllerutil.ContainsFinalizer(rp, FinalizerKey) {
-			// if no longer managed by us, attempt to remove the finalizer
-			controllerutil.RemoveFinalizer(rp, FinalizerKey)
+		// we don't need to delete helm releases due to ownership GC'ing coming into play
+		if controllerutil.RemoveFinalizer(rp, FinalizerKey) {
 			if err := r.Client.Update(ctx, rp); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
-
 		return ctrl.Result{}, nil
 	}
 
-	_, ok := rp.GetAnnotations()[resources.ManagedDecommissionAnnotation]
-	if ok {
-		log.Info("Managed decommission")
+	if !isRedpandaManaged(ctx, rp) {
+		// if no longer managed by us, attempt to remove the finalizer
+		if controllerutil.RemoveFinalizer(rp, FinalizerKey) {
+			if err := r.Client.Update(ctx, rp); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		return ctrl.Result{}, nil
 	}
 
-	// add finalizer if not exist
 	if !controllerutil.ContainsFinalizer(rp, FinalizerKey) {
-		patch := client.MergeFrom(rp.DeepCopy())
-		controllerutil.AddFinalizer(rp, FinalizerKey)
-		if err := r.Patch(ctx, rp, patch); err != nil {
-			log.Error(err, "unable to register finalizer")
+		config := redpandav1alpha2ac.Redpanda(rp.Name, rp.Namespace)
+		patch := kubernetes.ApplyPatch(config.WithFinalizers(FinalizerKey))
+		if err := r.Patch(ctx, rp, patch, client.ForceOwnership, fieldOwner); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
-	rp, err := r.reconcile(ctx, rp)
+	_, ok := rp.GetAnnotations()[resources.ManagedDecommissionAnnotation]
+	if ok {
+		return ctrl.Result{}, nil
+	}
+
+	patch, requeue, err := r.reconcile(ctx, rp)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = r.reconcileDefluxed(ctx, rp)
-	if err != nil {
+	if err := r.Client.Status().Patch(ctx, rp, patch, client.ForceOwnership, fieldOwner); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Update status after reconciliation.
-	if updateStatusErr := r.patchRedpandaStatus(ctx, rp); updateStatusErr != nil {
-		log.Error(updateStatusErr, "unable to update status after reconciliation")
-		return ctrl.Result{}, updateStatusErr
+	result := ctrl.Result{}
+	if requeue {
+		result.RequeueAfter = 10 * time.Second
 	}
 
-	return ctrl.Result{}, nil
-}
-
-func (r *RedpandaReconciler) reconcileDefluxed(ctx context.Context, rp *v1alpha2.Redpanda) error {
-	log := ctrl.LoggerFrom(ctx)
-	log.WithName("RedpandaReconciler.reconcileDefluxed")
-
-	if !ptr.Deref(rp.Spec.ChartRef.UseFlux, true) {
-		// TODO (Rafal) Implement Redpanda helm chart templating with Redpanda Status Report
-		// In the Redpanda.Status there will be only Conditions and Failures that would be used.
-
-		if !atLeast(rp.Spec.ChartRef.ChartVersion) {
-			log.Error(fmt.Errorf("chart version needs to be at least %s", HelmChartConstraint), "", "chart version", rp.Spec.ChartRef.ChartVersion)
-			v1alpha2.RedpandaNotReady(rp, "ChartRefUnsupported", fmt.Sprintf("chart version needs to be at least %s. Currently it is %s", HelmChartConstraint, rp.Spec.ChartRef.ChartVersion))
-			r.EventRecorder.Eventf(rp, "Warning", v1alpha2.EventSeverityError, fmt.Sprintf("chart version needs to be at least %s. Currently it is %s", HelmChartConstraint, rp.Spec.ChartRef.ChartVersion))
-			// Do not error out to not requeue. User needs to first migrate helm release to at least 5.9.3 version
-			return nil
-		}
-	}
-	return nil
+	return result, nil
 }
 
 func atLeast(version string) bool {
@@ -265,310 +250,112 @@ func atLeast(version string) bool {
 	return c.Check(v)
 }
 
-func (r *RedpandaReconciler) reconcile(ctx context.Context, rp *v1alpha2.Redpanda) (*v1alpha2.Redpanda, error) {
+func (r *RedpandaReconciler) reconcile(ctx context.Context, rp *redpandav1alpha2.Redpanda) (client.Patch, bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.WithName("RedpandaReconciler.reconcile")
-
-	// Observe HelmRelease generation.
-	if rp.Status.ObservedGeneration != rp.Generation {
-		rp.Status.ObservedGeneration = rp.Generation
-		rp = v1alpha2.RedpandaProgressing(rp)
-		if updateStatusErr := r.patchRedpandaStatus(ctx, rp); updateStatusErr != nil {
-			log.Error(updateStatusErr, "unable to update status after generation update")
-			return rp, updateStatusErr
-		}
-	}
 
 	// pull our deployments and stateful sets
 	redpandaStatefulSets, err := redpandaStatefulSetsForCluster(ctx, r.Client, rp)
 	if err != nil {
-		return rp, err
+		return nil, false, err
 	}
 	consoleDeployments, err := consoleDeploymentsForCluster(ctx, r.Client, rp)
 	if err != nil {
-		return rp, err
+		return nil, false, err
 	}
 
 	// Check if HelmRepository exists or create it
-	rp, repo, err := r.reconcileHelmRepository(ctx, rp)
+	repo := r.createHelmRepositoryFromTemplate(rp)
+	if err := r.Client.Patch(ctx, repo, client.Apply, client.ForceOwnership, fieldOwner); err != nil {
+		return nil, false, fmt.Errorf("error patching HelmRepository: %w", err)
+	}
+
+	release, err := r.createHelmReleaseFromTemplate(rp)
 	if err != nil {
-		return rp, err
+		return nil, false, err
+	}
+	if err := r.Client.Patch(ctx, release, client.Apply, client.ForceOwnership, fieldOwner); err != nil {
+		return nil, false, fmt.Errorf("error patching HelmRelease: %w", err)
 	}
 
-	isGenerationCurrent := repo.Generation != repo.Status.ObservedGeneration
-	isStatusConditionReady := apimeta.IsStatusConditionTrue(repo.Status.Conditions, meta.ReadyCondition)
-	msgNotReady := fmt.Sprintf(resourceNotReadyStrFmt, resourceTypeHelmRepository, repo.GetNamespace(), repo.GetName())
-	msgReady := fmt.Sprintf(resourceReadyStrFmt, resourceTypeHelmRepository, repo.GetNamespace(), repo.GetName())
-	isStatusReadyNILorTRUE := ptr.Equal(rp.Status.HelmRepositoryReady, ptr.To(true))
-	isStatusReadyNILorFALSE := ptr.Equal(rp.Status.HelmRepositoryReady, ptr.To(false))
-
-	isResourceReady := r.checkIfResourceIsReady(log, msgNotReady, msgReady, resourceTypeHelmRepository, isGenerationCurrent, isStatusConditionReady, isStatusReadyNILorTRUE, isStatusReadyNILorFALSE, rp)
-	if !isResourceReady {
-		// strip out all of the requeues since this will get requeued based on the Owns in the setup of the reconciler
-		return v1alpha2.RedpandaNotReady(rp, "ArtifactFailed", msgNotReady), nil
+	isResourceReady := func(o client.Object, generation int64, conditions []metav1.Condition) bool {
+		isCurrentGeneration := o.GetGeneration() == generation
+		isStatusConditionReady := apimeta.IsStatusConditionTrue(conditions, meta.ReadyCondition) || apimeta.IsStatusConditionTrue(conditions, helmv2beta2.RemediatedCondition)
+		return isCurrentGeneration && isStatusConditionReady
 	}
 
-	// Check if HelmRelease exists or create it also
-	rp, hr, err := r.reconcileHelmRelease(ctx, rp)
-	if err != nil {
-		return rp, err
-	}
-	if hr.Name == "" {
-		log.Info(fmt.Sprintf("Created HelmRelease for '%s/%s', will requeue", rp.Namespace, rp.Name))
-		return rp, err
+	repoReady := isResourceReady(repo, repo.Status.ObservedGeneration, repo.Status.Conditions)
+	releaseReady := isResourceReady(release, release.Status.ObservedGeneration, release.Status.Conditions)
+
+	createPatch := func(condition metav1.Condition) client.Patch {
+		patch := redpandav1alpha2ac.Redpanda(rp.Name, rp.Namespace).WithStatus(redpandav1alpha2ac.RedpandaStatus().
+			WithObservedGeneration(rp.Generation).
+			WithHelmReleaseReady(repoReady).
+			WithHelmReleaseReady(releaseReady).
+			WithHelmRepository(rp.GetHelmRepositoryName()).
+			WithHelmRelease(rp.GetHelmReleaseName()).
+			WithConditions(utils.StatusConditionConfigs(rp.Status.Conditions, rp.Generation, []metav1.Condition{
+				condition,
+			})...))
+		return kubernetes.ApplyPatch(patch)
 	}
 
-	isGenerationCurrent = hr.Generation != hr.Status.ObservedGeneration
-	isStatusConditionReady = apimeta.IsStatusConditionTrue(hr.Status.Conditions, meta.ReadyCondition) || apimeta.IsStatusConditionTrue(hr.Status.Conditions, helmv2beta2.RemediatedCondition)
-	msgNotReady = fmt.Sprintf(resourceNotReadyStrFmt, resourceTypeHelmRelease, hr.GetNamespace(), hr.GetName())
-	msgReady = fmt.Sprintf(resourceReadyStrFmt, resourceTypeHelmRelease, hr.GetNamespace(), hr.GetName())
-	isStatusReadyNILorTRUE = ptr.Equal(rp.Status.HelmReleaseReady, ptr.To(true))
-	isStatusReadyNILorFALSE = ptr.Equal(rp.Status.HelmReleaseReady, ptr.To(false))
+	if !repoReady || !releaseReady {
+		return createPatch(redpandav1alpha2.RedpandaNotReady("HelmChartNotReady", "Helm chart has not yet finished applying")), false, nil
+	}
 
-	isResourceReady = r.checkIfResourceIsReady(log, msgNotReady, msgReady, resourceTypeHelmRelease, isGenerationCurrent, isStatusConditionReady, isStatusReadyNILorTRUE, isStatusReadyNILorFALSE, rp)
-	if !isResourceReady {
-		// strip out all of the requeues since this will get requeued based on the Owns in the setup of the reconciler
-		return v1alpha2.RedpandaNotReady(rp, "ArtifactFailed", msgNotReady), nil
+	if !rp.UseFlux() {
+		// TODO (Rafal) Implement Redpanda helm chart templating with Redpanda Status Report
+		// In the Redpanda.Status there will be only Conditions and Failures that would be used.
+
+		if !atLeast(rp.Spec.ChartRef.ChartVersion) {
+			// Do not error out to not requeue. User needs to first migrate helm release to at least 5.9.3 version
+			return createPatch(redpandav1alpha2.RedpandaNotReady("ChartRefUnsupported", fmt.Sprintf("chart version needs to be at least %s. Currently it is %s", HelmChartConstraint, rp.Spec.ChartRef.ChartVersion))), false, nil
+		}
 	}
 
 	for _, sts := range redpandaStatefulSets {
-		decommission, err := needsDecommission(ctx, sts, log)
+		decommission, err := r.needsDecommission(ctx, rp, sts)
 		if err != nil {
-			return rp, err
+			return nil, false, err
 		}
 		if decommission {
-			return v1alpha2.RedpandaNotReady(rp, "RedpandaPodsNotReady", "Cluster currently decommissioning dead nodes"), nil
+			requeue, err := r.reconcileDecommission(ctx, log, rp, sts)
+			if err != nil {
+				return nil, false, err
+			}
+			return createPatch(redpandav1alpha2.RedpandaNotReady("RedpandaPodsNotReady", "Cluster currently decommissioning dead nodes")), requeue, nil
 		}
 	}
 
 	// check to make sure that our stateful set pods are all current
 	if message, ready := checkStatefulSetStatus(redpandaStatefulSets); !ready {
-		return v1alpha2.RedpandaNotReady(rp, "RedpandaPodsNotReady", message), nil
+		return createPatch(redpandav1alpha2.RedpandaNotReady("RedpandaPodsNotReady", message)), false, nil
 	}
 
 	// check to make sure that our deployment pods are all current
 	if message, ready := checkDeploymentsStatus(consoleDeployments); !ready {
-		return v1alpha2.RedpandaNotReady(rp, "ConsolePodsNotReady", message), nil
+		return createPatch(redpandav1alpha2.RedpandaNotReady("ConsolePodsNotReady", message)), false, nil
 	}
 
-	return v1alpha2.RedpandaReady(rp), nil
+	return createPatch(redpandav1alpha2.RedpandaReady()), false, nil
 }
 
-func (r *RedpandaReconciler) checkIfResourceIsReady(log logr.Logger, msgNotReady, msgReady, kind string, isGenerationCurrent, isStatusConditionReady, isStatusReadyNILorTRUE, isStatusReadyNILorFALSE bool, rp *v1alpha2.Redpanda) bool {
-	if isGenerationCurrent || !isStatusConditionReady {
-		// capture event only
-		if isStatusReadyNILorTRUE {
-			r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityInfo, msgNotReady)
-		}
-
-		switch kind {
-		case resourceTypeHelmRepository:
-			rp.Status.HelmRepositoryReady = ptr.To(false)
-		case resourceTypeHelmRelease:
-			rp.Status.HelmReleaseReady = ptr.To(false)
-		}
-
-		log.Info(msgNotReady)
-		return false
-	} else if isStatusConditionReady && isStatusReadyNILorFALSE {
-		// here since the condition should be true, we update the value to
-		// be true, and send an event
-		switch kind {
-		case resourceTypeHelmRepository:
-			rp.Status.HelmRepositoryReady = ptr.To(true)
-		case resourceTypeHelmRelease:
-			rp.Status.HelmReleaseReady = ptr.To(true)
-		}
-
-		r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityInfo, msgReady)
-	}
-
-	return true
-}
-
-func (r *RedpandaReconciler) reconcileHelmRelease(ctx context.Context, rp *v1alpha2.Redpanda) (*v1alpha2.Redpanda, *helmv2beta2.HelmRelease, error) {
-	var err error
-
-	// Check if HelmRelease exists or create it
-	hr := &helmv2beta2.HelmRelease{}
-
-	// have we recorded a helmRelease, if not assume we have not created it
-	if rp.Status.HelmRelease == "" {
-		// did not find helmRelease, then create it
-		hr, err = r.createHelmRelease(ctx, rp)
-		return rp, hr, err
-	}
-
-	// if we are not empty, then we assume at some point this existed, let's check
-	key := types.NamespacedName{Namespace: rp.Namespace, Name: rp.Status.GetHelmRelease()}
-	err = r.Client.Get(ctx, key, hr)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			rp.Status.HelmRelease = ""
-			hr, err = r.createHelmRelease(ctx, rp)
-			return rp, hr, err
-		}
-		// if this is a not found error
-		return rp, hr, fmt.Errorf("failed to get HelmRelease '%s/%s': %w", rp.Namespace, rp.Status.HelmRelease, err)
-	}
-
-	// Check if we need to update here
-	hrTemplate, errTemplated := r.createHelmReleaseFromTemplate(ctx, rp)
-	if errTemplated != nil {
-		r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityError, errTemplated.Error())
-		return rp, hr, errTemplated
-	}
-
-	if r.helmReleaseRequiresUpdate(ctx, hr, hrTemplate) {
-		hr.Spec = hrTemplate.Spec
-		if err = r.Client.Update(ctx, hr); err != nil {
-			r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityError, err.Error())
-			return rp, hr, err
-		}
-		r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityInfo, fmt.Sprintf("HelmRelease '%s/%s' updated", rp.Namespace, rp.GetHelmReleaseName()))
-		rp.Status.HelmRelease = rp.GetHelmReleaseName()
-	}
-
-	return rp, hr, nil
-}
-
-func (r *RedpandaReconciler) reconcileHelmRepository(ctx context.Context, rp *v1alpha2.Redpanda) (*v1alpha2.Redpanda, *sourcev1.HelmRepository, error) {
-	// Check if HelmRepository exists or create it
-	repo := &sourcev1.HelmRepository{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: rp.Namespace, Name: rp.GetHelmRepositoryName()}, repo); err != nil {
-		if apierrors.IsNotFound(err) {
-			repo = r.createHelmRepositoryFromTemplate(rp)
-			if errCreate := r.Client.Create(ctx, repo); errCreate != nil {
-				r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityError, fmt.Sprintf("error creating HelmRepository: %s", errCreate))
-				return rp, repo, fmt.Errorf("error creating HelmRepository: %w", errCreate)
-			}
-			r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityInfo, fmt.Sprintf("HelmRepository '%s/%s' created ", rp.Namespace, rp.GetHelmRepositoryName()))
-		} else {
-			r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityError, fmt.Sprintf("error getting HelmRepository: %s", err))
-			return rp, repo, fmt.Errorf("error getting HelmRepository: %w", err)
-		}
-	}
-	rp.Status.HelmRepository = rp.GetHelmRepositoryName()
-
-	return rp, repo, nil
-}
-
-func (r *RedpandaReconciler) reconcileDelete(ctx context.Context, rp *v1alpha2.Redpanda) (ctrl.Result, error) {
-	if err := r.deleteHelmRelease(ctx, rp); err != nil {
-		return ctrl.Result{}, err
-	}
-	if controllerutil.ContainsFinalizer(rp, FinalizerKey) {
-		controllerutil.RemoveFinalizer(rp, FinalizerKey)
-		if err := r.Client.Update(ctx, rp); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-	return ctrl.Result{}, nil
-}
-
-func (r *RedpandaReconciler) createHelmRelease(ctx context.Context, rp *v1alpha2.Redpanda) (*helmv2beta2.HelmRelease, error) {
-	// create helmRelease resource from template
-	hRelease, err := r.createHelmReleaseFromTemplate(ctx, rp)
-	if err != nil {
-		r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityError, fmt.Sprintf("could not create helm release template: %s", err))
-		return hRelease, fmt.Errorf("could not create HelmRelease template: %w", err)
-	}
-
-	// create helmRelease object here
-	if err := r.Client.Create(ctx, hRelease); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityError, err.Error())
-			return hRelease, fmt.Errorf("failed to create HelmRelease '%s/%s': %w", rp.Namespace, rp.Status.HelmRelease, err)
-		}
-		// we already exist, then update the status to rp
-		rp.Status.HelmRelease = rp.GetHelmReleaseName()
-	}
-
-	// we have created the resource, so we are ok to update events, and update the helmRelease name on the status object
-	r.event(rp, rp.Status.LastAttemptedRevision, v1alpha2.EventSeverityInfo, fmt.Sprintf("HelmRelease '%s/%s' created ", rp.Namespace, rp.GetHelmReleaseName()))
-	rp.Status.HelmRelease = rp.GetHelmReleaseName()
-
-	return hRelease, nil
-}
-
-func (r *RedpandaReconciler) deleteHelmRelease(ctx context.Context, rp *v1alpha2.Redpanda) error {
-	if rp.Status.HelmRelease == "" {
-		return nil
-	}
-
-	var hr helmv2beta2.HelmRelease
-	hrName := rp.Status.GetHelmRelease()
-	err := r.Client.Get(ctx, types.NamespacedName{Namespace: rp.Namespace, Name: hrName}, &hr)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			rp.Status.HelmRelease = ""
-			rp.Status.HelmRepository = ""
-			return nil
-		}
-		return fmt.Errorf("failed to get HelmRelease '%s': %w", rp.Status.HelmRelease, err)
-	}
-
-	foregroundDeletePropagation := metav1.DeletePropagationForeground
-
-	if err = r.Client.Delete(ctx, &hr, &client.DeleteOptions{
-		PropagationPolicy: &foregroundDeletePropagation,
-	}); err != nil {
-		return fmt.Errorf("deleting helm release connected with Redpanda (%s): %w", rp.Name, err)
-	}
-
-	return errWaitForReleaseDeletion
-}
-
-func (r *RedpandaReconciler) createHelmReleaseFromTemplate(ctx context.Context, rp *v1alpha2.Redpanda) (*helmv2beta2.HelmRelease, error) {
-	log := ctrl.LoggerFrom(ctx).WithName("RedpandaReconciler.createHelmReleaseFromTemplate")
-
+func (r *RedpandaReconciler) createHelmReleaseFromTemplate(rp *redpandav1alpha2.Redpanda) (*helmv2beta2.HelmRelease, error) {
 	values, err := rp.ValuesJSON()
 	if err != nil {
 		return nil, fmt.Errorf("could not parse clusterSpec to json: %w", err)
 	}
 
-	log.V(logger.DebugLevel).Info("helm release values", "raw-values", string(values.Raw))
-
-	hasher := sha256.New()
-	hasher.Write(values.Raw)
-	sha := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
-	// TODO possibly add the SHA to the status
-	log.Info(fmt.Sprintf("SHA of values file to use: %s", sha))
-
-	timeout := rp.Spec.ChartRef.Timeout
-	if timeout == nil {
-		timeout = &metav1.Duration{Duration: 15 * time.Minute}
-	}
-
-	upgrade := &helmv2beta2.Upgrade{
-		// we skip waiting since relying on the Helm release process
-		// to actually happen means that we block running any sort
-		// of pending upgrades while we are attempting the upgrade job.
-		DisableWait:        true,
-		DisableWaitForJobs: true,
-	}
-
-	helmUpgrade := rp.Spec.ChartRef.Upgrade
-	if rp.Spec.ChartRef.Upgrade != nil {
-		if helmUpgrade.Force != nil {
-			upgrade.Force = ptr.Deref(helmUpgrade.Force, false)
-		}
-		if helmUpgrade.CleanupOnFail != nil {
-			upgrade.CleanupOnFail = ptr.Deref(helmUpgrade.CleanupOnFail, false)
-		}
-		if helmUpgrade.PreserveValues != nil {
-			upgrade.PreserveValues = ptr.Deref(helmUpgrade.PreserveValues, false)
-		}
-		if helmUpgrade.Remediation != nil {
-			upgrade.Remediation = helmUpgrade.Remediation
-		}
-	}
-
 	return &helmv2beta2.HelmRelease{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       helmv2beta2.HelmReleaseKind,
+			APIVersion: helmv2beta2.GroupVersion.Identifier(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            rp.GetHelmReleaseName(),
 			Namespace:       rp.Namespace,
-			OwnerReferences: []metav1.OwnerReference{rp.OwnerShipRefObj()},
+			OwnerReferences: []metav1.OwnerReference{rp.AsOwnerReference()},
 		},
 		Spec: helmv2beta2.HelmReleaseSpec{
 			Suspend: !ptr.Deref(rp.Spec.ChartRef.UseFlux, true),
@@ -586,87 +373,332 @@ func (r *RedpandaReconciler) createHelmReleaseFromTemplate(ctx context.Context, 
 			},
 			Values:   values,
 			Interval: metav1.Duration{Duration: 30 * time.Second},
-			Timeout:  timeout,
-			Upgrade:  upgrade,
+			Timeout:  functional.Default(rp.Spec.ChartRef.Timeout, &metav1.Duration{Duration: 15 * time.Minute}),
+			Upgrade: rp.Spec.ChartRef.MergeUpgrade(&helmv2beta2.Upgrade{
+				// we skip waiting since relying on the Helm release process
+				// to actually happen means that we block running any sort
+				// of pending upgrades while we are attempting the upgrade job.
+				DisableWait:        true,
+				DisableWaitForJobs: true,
+			}),
 		},
 	}, nil
 }
 
-func (r *RedpandaReconciler) createHelmRepositoryFromTemplate(rp *v1alpha2.Redpanda) *sourcev1.HelmRepository {
+func (r *RedpandaReconciler) createHelmRepositoryFromTemplate(rp *redpandav1alpha2.Redpanda) *sourcev1.HelmRepository {
 	return &sourcev1.HelmRepository{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       sourcev1.HelmRepositoryKind,
+			APIVersion: sourcev1.GroupVersion.Identifier(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            rp.GetHelmRepositoryName(),
 			Namespace:       rp.Namespace,
-			OwnerReferences: []metav1.OwnerReference{rp.OwnerShipRefObj()},
+			OwnerReferences: []metav1.OwnerReference{rp.AsOwnerReference()},
 		},
 		Spec: sourcev1.HelmRepositorySpec{
 			Suspend:  !ptr.Deref(rp.Spec.ChartRef.UseFlux, true),
 			Interval: metav1.Duration{Duration: 30 * time.Second},
-			URL:      v1alpha2.RedpandaChartRepository,
+			URL:      redpandav1alpha2.RedpandaChartRepository,
 		},
 	}
 }
 
-func (r *RedpandaReconciler) patchRedpandaStatus(ctx context.Context, rp *v1alpha2.Redpanda) error {
-	key := client.ObjectKeyFromObject(rp)
-	latest := &v1alpha2.Redpanda{}
-	if err := r.Client.Get(ctx, key, latest); err != nil {
-		return err
+func (r *RedpandaReconciler) needsDecommission(ctx context.Context, o *redpandav1alpha2.Redpanda, sts *appsv1.StatefulSet) (bool, error) {
+	requestedReplicas := ptr.Deref(sts.Spec.Replicas, 0)
+
+	adminAPI, err := r.factory.RedpandaAdminClient(ctx, o)
+	if err != nil {
+		return false, fmt.Errorf("error creating adminAPI: %w", err)
 	}
-	return r.Client.Status().Patch(ctx, rp, client.MergeFrom(latest))
+
+	health, err := adminAPI.GetHealthOverview(ctx)
+	if err != nil {
+		return false, fmt.Errorf("could not make request to admin-api: %w", err)
+	}
+
+	if requestedReplicas == 0 || len(health.AllNodes) == 0 {
+		return false, nil
+	}
+
+	return len(health.AllNodes) > int(requestedReplicas), nil
 }
 
-// event emits a Kubernetes event and forwards the event to notification controller if configured.
-func (r *RedpandaReconciler) event(rp *v1alpha2.Redpanda, revision, severity, msg string) {
-	var metaData map[string]string
-	if revision != "" {
-		metaData = map[string]string{v2.GroupVersion.Group + revisionPath: revision}
+// reconcileDecommission performs decommission task after verifying that we should decommission the sts given
+// 1. After requeue from decommission due to condition we have set, now we verify and perform tasks.
+// 2. Retrieve sts information again, this time focusing on replicas and state
+// 3. If we observe that we have not completed deletion, we requeue
+// 4. We wait until the cluster is not ready, else requeue, this means that we have reached a steady state that we can proceed from
+// 5. As in previous function, we build adminAPI client and get values files
+// 6. Check if we have more nodes registered than requested, proceed since this is the first clue we need to decommission
+// 7. We are in steady state, proceed if we have more or the same number of downed nodes then are in allNodes registered minus requested
+// 8. For all the downed nodes, we get decommission-status, since we have waited for steady state we should be OK to do so
+// 9. Any failures captured will force us to requeue and try again.
+// 10. Attempt to delete the pvc and retain volumes if possible.
+// 11. Finally, reset condition state to unknown if we have been successful so far.
+//
+//nolint:funlen // length looks good
+func (r *RedpandaReconciler) reconcileDecommission(ctx context.Context, log logr.Logger, o *redpandav1alpha2.Redpanda, sts *appsv1.StatefulSet) (bool, error) {
+	requestedReplicas := ptr.Deref(sts.Spec.Replicas, 0)
+
+	statusReplicas := sts.Status.Replicas
+	availableReplicas := sts.Status.AvailableReplicas
+
+	// we have started decommission, but we want to requeue if we have not transitioned here. This should
+	// avoid decommissioning the wrong node (broker) id
+	if statusReplicas != requestedReplicas && sts.Status.UpdatedReplicas == 0 {
+		log.Info("have not finished terminating and restarted largest ordinal, requeue here", "statusReplicas", statusReplicas, "availableReplicas", availableReplicas)
+		return true, nil
 	}
-	eventType := "Normal"
-	if severity == v1alpha2.EventSeverityError {
-		eventType = "Warning"
+
+	// This helps avoid decommissioning nodes that are starting up where, say, a node has been removed
+	// and you need to move it and start a new one
+	if availableReplicas != 0 {
+		log.Info("have not reached steady state yet, requeue here")
+		return true, nil
 	}
-	r.EventRecorder.AnnotatedEventf(rp, metaData, eventType, severity, msg)
+
+	adminAPI, err := r.factory.RedpandaAdminClient(ctx, o)
+	if err != nil {
+		return false, fmt.Errorf("error creating adminAPI: %w", err)
+	}
+
+	health, err := adminAPI.GetHealthOverview(ctx)
+	if err != nil {
+		return false, fmt.Errorf("could not make request to admin-api: %w", err)
+	}
+
+	// decommission looks like this:
+	// 1) replicas = 2, and health: AllNodes:[0 1 2] NodesDown:[2]
+	// will not heal on its own, we need to remove these downed nodes
+	// 2) Downed node was replaced due to node being removed,
+
+	if requestedReplicas == 0 || len(health.AllNodes) == 0 {
+		return false, nil
+	}
+
+	var errList error
+	// nolint:nestif // this is ok
+	if len(health.AllNodes) > int(requestedReplicas) {
+		// we are in decommission mode
+
+		// first check if we have a controllerID before we perform the decommission, else requeue immediately
+		// this happens when the controllerID node is being terminated, may show more than one node down at this point
+		if health.ControllerID < 0 {
+			log.Info("controllerID is not defined yet, we will requeue")
+			return true, nil
+		}
+
+		nodesDownMap := collections.NewSet[int]()
+		for _, node := range health.NodesDown {
+			nodesDownMap.Add(node)
+		}
+
+		// perform decommission on down down-nodes but only if down nodes match count of all-nodes-replicas
+		// the greater case takes care of the situation where we may also have additional ids here.
+		if len(health.NodesDown) >= (len(health.AllNodes) - int(requestedReplicas)) {
+			for podOrdinal := 0; podOrdinal < int(requestedReplicas); podOrdinal++ {
+				singleNodeAdminAPI, err := adminAPI.ForBroker(ctx, podOrdinal)
+				if err != nil {
+					log.Error(err, "creating single node AdminAPI", "pod-ordinal", podOrdinal)
+					return false, fmt.Errorf("creating single node AdminAPI for pod (%d): %w", podOrdinal, err)
+				}
+				nodeCfg, nodeErr := singleNodeAdminAPI.GetNodeConfig(ctx)
+				if nodeErr != nil {
+					log.Error(nodeErr, "getting node configuration", "pod-ordinal", podOrdinal)
+					return false, fmt.Errorf("getting node configuration from pod (%d): %w", podOrdinal, nodeErr)
+				}
+				nodesDownMap.Delete(nodeCfg.NodeID)
+			}
+
+			for _, nodeID := range nodesDownMap.Values() {
+				// Now we check the decommission status before continuing
+				doDecommission := false
+				status, decommStatusError := adminAPI.DecommissionBrokerStatus(ctx, nodeID)
+				if decommStatusError != nil {
+					log.Info("found for decommission status error", "decommStatusError", decommStatusError)
+					// nolint:gocritic // no need for a switch, this is ok
+					if strings.Contains(decommStatusError.Error(), "is not decommissioning") {
+						doDecommission = true
+					} else if strings.Contains(decommStatusError.Error(), "does not exists") {
+						log.Info("nodeID does not exist, skipping", "nodeID", nodeID, "decommStatusError", decommStatusError)
+					} else {
+						errList = errors.Join(errList, fmt.Errorf("could get decommission status of broker: %w", decommStatusError))
+					}
+				}
+				log.V(logger.DebugLevel).Info("decommission status", "status", status)
+
+				if doDecommission {
+					log.Info("all checks pass, attempting to decommission", "nodeID", nodeID)
+					// we want a clear signal to avoid 400s here, the suspicion here is an invalid transitional state
+					decomErr := adminAPI.DecommissionBroker(ctx, nodeID)
+					if decomErr != nil && !strings.Contains(decomErr.Error(), "failed: Not Found") && !strings.Contains(decomErr.Error(), "failed: Bad Request") {
+						errList = errors.Join(errList, fmt.Errorf("could not decommission broker: %w", decomErr))
+					}
+				}
+			}
+		}
+	}
+
+	// now we check pvcs
+	if err = r.reconcilePVCs(log.WithName("DecommissionReconciler.reconcilePVCs"), ctx, o, sts); err != nil {
+		errList = errors.Join(errList, fmt.Errorf("could not reconcile pvcs: %w", err))
+	}
+
+	if errList != nil {
+		return false, fmt.Errorf("found errors %w", errList)
+	}
+
+	// now we need to
+	patch := client.MergeFrom(sts.DeepCopy())
+	// create condition here
+	newCondition := appsv1.StatefulSetCondition{
+		Type:               DecommissionCondition,
+		Status:             corev1.ConditionUnknown,
+		Message:            DecomConditionUnknownReasonMsg,
+		Reason:             "Decommission completed",
+		LastTransitionTime: metav1.Now(),
+	}
+
+	if updatedConditions, isUpdated := updateStatefulSetDecommissionConditions(&newCondition, sts.Status.Conditions); isUpdated {
+		sts.Status.Conditions = updatedConditions
+		if errPatch := r.Client.Status().Patch(ctx, sts, patch); errPatch != nil {
+			return false, fmt.Errorf("unable to update sts status %q condition: %w", sts.Name, errPatch)
+		}
+	}
+
+	return false, nil
 }
 
-func (r *RedpandaReconciler) helmReleaseRequiresUpdate(ctx context.Context, hr, hrTemplate *helmv2beta2.HelmRelease) bool {
-	log := ctrl.LoggerFrom(ctx).WithName("RedpandaReconciler.helmReleaseRequiresUpdate")
-
-	switch {
-	case !reflect.DeepEqual(hr.GetValues(), hrTemplate.GetValues()):
-		log.Info("values found different")
-		return true
-	case helmChartRequiresUpdate(log, &hr.Spec.Chart, &hrTemplate.Spec.Chart):
-		log.Info("chartTemplate found different")
-		return true
-	case hr.Spec.Interval != hrTemplate.Spec.Interval:
-		log.Info("interval found different")
-		return true
-	default:
-		return false
+func (r *RedpandaReconciler) reconcilePVCs(log logr.Logger, ctx context.Context, o *redpandav1alpha2.Redpanda, sts *appsv1.StatefulSet) error {
+	if o.Spec.ClusterSpec.Storage == nil || o.Spec.ClusterSpec.Storage.PersistentVolume == nil || o.Spec.ClusterSpec.Storage.PersistentVolume.Enabled == nil {
+		return nil
 	}
+
+	persistentStorageEnabled := *o.Spec.ClusterSpec.Storage.PersistentVolume.Enabled
+	if !persistentStorageEnabled {
+		return nil
+	}
+
+	log.Info("persistent storage enabled, checking if we need to remove something")
+	podLabels := client.MatchingLabels{}
+
+	for k, v := range sts.Spec.Template.Labels {
+		podLabels[k] = v
+	}
+
+	podOpts := []client.ListOption{
+		client.InNamespace(sts.Namespace),
+		podLabels,
+	}
+
+	podList := &corev1.PodList{}
+	if listPodErr := r.Client.List(ctx, podList, podOpts...); listPodErr != nil {
+		return fmt.Errorf("could not list pods: %w", listPodErr)
+	}
+
+	templates := sts.Spec.VolumeClaimTemplates
+	var vctLabels map[string]string
+	for i := range templates {
+		template := templates[i]
+		if template.Name == "datadir" {
+			vctLabels = template.Labels
+			break
+		}
+	}
+
+	vctMatchingLabels := client.MatchingLabels{}
+
+	for k, v := range vctLabels {
+		// TODO is this expected
+		vctMatchingLabels[k] = v
+		if k == K8sComponentLabelKey {
+			vctMatchingLabels[k] = fmt.Sprintf("%s-statefulset", v)
+		}
+	}
+
+	vctOpts := []client.ListOption{
+		client.InNamespace(sts.Namespace),
+		vctMatchingLabels,
+	}
+
+	// find the dataDir template
+	// now cycle through pvcs, retain volumes for future but delete claims
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	if listErr := r.Client.List(ctx, pvcList, vctOpts...); listErr != nil {
+		return fmt.Errorf("could not get pvc list: %w", listErr)
+	}
+
+	pvcsBound := make(map[string]bool, 0)
+	for i := range pvcList.Items {
+		item := pvcList.Items[i]
+		pvcsBound[item.Name] = false
+	}
+
+	for j := range podList.Items {
+		pod := podList.Items[j]
+		// skip pods that are being terminated
+		if pod.GetDeletionTimestamp() != nil {
+			continue
+		}
+		volumes := pod.Spec.Volumes
+		for i := range volumes {
+			volume := volumes[i]
+			if volume.VolumeSource.PersistentVolumeClaim != nil {
+				pvcsBound[volume.VolumeSource.PersistentVolumeClaim.ClaimName] = true
+			}
+		}
+	}
+
+	if pvcErrorList := r.tryToDeletePVC(log, ctx, ptr.Deref(sts.Spec.Replicas, 0), pvcsBound, pvcList); pvcErrorList != nil {
+		return fmt.Errorf("errors found: %w", pvcErrorList)
+	}
+
+	return nil
 }
 
-// helmChartRequiresUpdate compares the v2beta1.HelmChartTemplate of the
-// v2beta1.HelmRelease to the given v1beta2.HelmChart to determine if an
-// update is required.
-func helmChartRequiresUpdate(log logr.Logger, template, chart *helmv2beta2.HelmChartTemplate) bool {
-	switch {
-	case template.Spec.Chart != chart.Spec.Chart:
-		log.Info("chart is different")
-		return true
-	case template.Spec.Version != "" && template.Spec.Version != chart.Spec.Version:
-		log.Info("spec version is different")
-		return true
-	default:
-		return false
+func (r *RedpandaReconciler) tryToDeletePVC(log logr.Logger, ctx context.Context, replicas int32, isBoundList map[string]bool, pvcList *corev1.PersistentVolumeClaimList) error {
+	var pvcErrorList error
+
+	// here we sort the list of items, should be ordered by ordinal, and we remove the last first so we sort first then remove
+	// only the first n matching the number of replicas
+	keys := make([]string, 0)
+	for k := range isBoundList {
+		keys = append(keys, k)
 	}
+
+	// sort the pvc strings
+	sort.Strings(keys)
+
+	// remove first
+	keys = keys[int(replicas):]
+
+	// TODO: may want to not processes cases where we have more than 1 pvcs, so we force the 1 node at a time policy
+	// this will avoid dead locking the cluster since you cannot add new nodes, or decomm
+
+	for i := range pvcList.Items {
+		item := pvcList.Items[i]
+
+		if isBoundList[item.Name] || !isNameInList(item.Name, keys) {
+			continue
+		}
+
+		// we are being deleted, before moving forward, try to update PV to avoid data loss
+		bestTrySetRetainPV(r.Client, log, ctx, item.Spec.VolumeName, item.Namespace)
+
+		// now we are ready to delete PVC
+		if errDelete := r.Client.Delete(ctx, &item); errDelete != nil {
+			pvcErrorList = errors.Join(pvcErrorList, fmt.Errorf("could not delete PVC %q: %w", item.Name, errDelete))
+		}
+	}
+
+	return pvcErrorList
 }
 
-func isRedpandaManaged(ctx context.Context, redpandaCluster *v1alpha2.Redpanda) bool {
+func isRedpandaManaged(ctx context.Context, redpandaCluster *redpandav1alpha2.Redpanda) bool {
 	log := ctrl.LoggerFrom(ctx).WithName("RedpandaReconciler.isRedpandaManaged")
 
-	managedAnnotationKey := v1alpha2.GroupVersion.Group + managedPath
+	managedAnnotationKey := redpandav1alpha2.GroupVersion.Group + managedPath
 	if managed, exists := redpandaCluster.Annotations[managedAnnotationKey]; exists && managed == NotManaged {
 		log.Info(fmt.Sprintf("management is disabled; to enable it, change the '%s' annotation to true or remove it", managedAnnotationKey))
 		return false

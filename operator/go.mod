@@ -456,3 +456,5 @@ replace github.com/fluxcd/helm-controller v0.37.2 => github.com/redpanda-data/he
 replace pgregory.net/rapid => github.com/chrisseto/rapid v0.0.0-20240815210052-cdeef406c65c
 
 replace github.com/redpanda-data/helm-charts => ../../helm-charts
+
+replace github.com/redpanda-data/common-go/rpadmin => ../../common-go/rpadmin

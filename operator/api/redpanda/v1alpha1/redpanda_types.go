@@ -32,16 +32,6 @@ func init() {
 	SchemeBuilder.Register(&Redpanda{}, &RedpandaList{})
 }
 
-// RedpandaReady registers a successful reconciliation of the given HelmRelease.
-func RedpandaReady(rp *Redpanda) *Redpanda {
-	return (*Redpanda)(v1alpha2.RedpandaReady((*v1alpha2.Redpanda)(rp)))
-}
-
-// RedpandaNotReady registers a failed reconciliation of the given Redpanda.
-func RedpandaNotReady(rp *Redpanda, reason, message string) *Redpanda {
-	return (*Redpanda)(v1alpha2.RedpandaNotReady((*v1alpha2.Redpanda)(rp), reason, message))
-}
-
 // RedpandaProgressing resets any failures and registers progress toward
 // reconciling the given Redpanda by setting the meta.ReadyCondition to
 // 'Unknown' for meta.ProgressingReason.

@@ -89,7 +89,7 @@ func sourceClusters[T client.Object, U clientList[T]](ctx context.Context, c cli
 func enqueueFromSourceCluster[T client.Object, U clientList[T]](mgr ctrl.Manager, name string, l U) handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 		list := reflect.New(reflect.TypeOf(l).Elem()).Interface().(U)
-		requests, err := sourceClusters(ctx, mgr.GetClient(), list, "schema", client.ObjectKeyFromObject(o))
+		requests, err := sourceClusters(ctx, mgr.GetClient(), list, name, client.ObjectKeyFromObject(o))
 		if err != nil {
 			mgr.GetLogger().V(1).Info(fmt.Sprintf("possibly skipping %s reconciliation due to failure to fetch %s associated with cluster", name, name), "error", err)
 			return nil

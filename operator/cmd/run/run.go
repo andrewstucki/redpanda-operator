@@ -501,18 +501,7 @@ func Run(
 			}()
 		}
 
-		// Redpanda Reconciler
-		var redpandaEventRecorder *events.Recorder
-		if redpandaEventRecorder, err = events.NewRecorder(mgr, ctrl.Log, eventsAddr, "RedpandaReconciler"); err != nil {
-			setupLog.Error(err, "unable to create event recorder for: RedpandaReconciler")
-			os.Exit(1)
-		}
-
-		if err = (&redpandacontrollers.RedpandaReconciler{
-			Client:        mgr.GetClient(),
-			Scheme:        mgr.GetScheme(),
-			EventRecorder: redpandaEventRecorder,
-		}).SetupWithManager(ctx, mgr); err != nil {
+		if err = redpandacontrollers.SetupRedpandaReconciler(ctx, mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Redpanda")
 			os.Exit(1)
 		}
@@ -552,17 +541,6 @@ func Run(
 				OperatorMode: operatorMode,
 			}).SetupWithManager(mgr); err != nil {
 				setupLog.Error(err, "unable to create controller", "controller", "RedpandaNodePVCReconciler")
-				os.Exit(1)
-			}
-		}
-
-		if runThisController(DecommissionController, additionalControllers) {
-			if err = (&redpandacontrollers.DecommissionReconciler{
-				Client:                   mgr.GetClient(),
-				OperatorMode:             operatorMode,
-				DecommissionWaitInterval: decommissionWaitInterval,
-			}).SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "DecommissionReconciler")
 				os.Exit(1)
 			}
 		}
