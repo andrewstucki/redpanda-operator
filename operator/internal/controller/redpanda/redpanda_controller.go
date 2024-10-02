@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	helmv2beta1 "github.com/fluxcd/helm-controller/api/v2beta1"
 	helmv2beta2 "github.com/fluxcd/helm-controller/api/v2beta2"
 	"github.com/fluxcd/pkg/apis/meta"
@@ -231,25 +230,6 @@ func (r *RedpandaReconciler) Reconcile(c context.Context, req ctrl.Request) (ctr
 	return result, nil
 }
 
-func atLeast(version string) bool {
-	if version == "" {
-		return true
-	}
-
-	c, err := semver.NewConstraint(fmt.Sprintf(">= %s", HelmChartConstraint))
-	if err != nil {
-		// Handle constraint not being parsable.
-		return false
-	}
-
-	v, err := semver.NewVersion(version)
-	if err != nil {
-		return false
-	}
-
-	return c.Check(v)
-}
-
 func (r *RedpandaReconciler) reconcile(ctx context.Context, rp *redpandav1alpha2.Redpanda) (client.Patch, bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.WithName("RedpandaReconciler.reconcile")
@@ -308,10 +288,7 @@ func (r *RedpandaReconciler) reconcile(ctx context.Context, rp *redpandav1alpha2
 		// TODO (Rafal) Implement Redpanda helm chart templating with Redpanda Status Report
 		// In the Redpanda.Status there will be only Conditions and Failures that would be used.
 
-		if !atLeast(rp.Spec.ChartRef.ChartVersion) {
-			// Do not error out to not requeue. User needs to first migrate helm release to at least 5.9.3 version
-			return createPatch(redpandav1alpha2.RedpandaNotReady("ChartRefUnsupported", fmt.Sprintf("chart version needs to be at least %s. Currently it is %s", HelmChartConstraint, rp.Spec.ChartRef.ChartVersion))), false, nil
-		}
+		return createPatch(redpandav1alpha2.RedpandaNotReady("UseFluxUnsupported", "useFlux is not currently supported")), false, nil
 	}
 
 	for _, sts := range redpandaStatefulSets {
